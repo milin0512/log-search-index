@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'" />
+<title>ログ検索インデックス</title>
+<link rel="stylesheet" href="style.css?v=1" />
+</head>
+<body>
+
+<header class="app-header">
+  <h1>ログ検索インデックス</h1>
+</header>
+
+<button type="button" class="app-header__menu-btn" id="btn-sidebar-open" aria-label="メニューを開く">
+  ☰
+  <span class="app-header__menu-badge" id="sidebar-filter-dot" hidden></span>
+</button>
+
+<div class="layout">
+
+  <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar__header">
+      <span class="sidebar__title">メニュー</span>
+      <button type="button" class="bottom-bar__icon-btn" id="btn-sidebar-close" aria-label="メニューを閉じる">×</button>
+    </div>
+
+    <button type="button" class="btn btn--primary btn--block" id="btn-goto-list">セッション一覧に戻る</button>
+
+    <div class="sidebar__section">
+      <h3 class="sidebar__section-title">ログの読み込み</h3>
+      <p class="sidebar__section-desc">ココフォリアの生HTML、またはCClogのプレビュー用HTMLを選んでください（複数可）。</p>
+      <label class="btn btn--secondary btn--block" for="file-input">ファイルを選ぶ</label>
+      <input type="file" id="file-input" accept=".html,text/html" multiple hidden />
+      <p class="load-status" id="load-status"></p>
+    </div>
+
+    <div class="sidebar__section">
+      <h3 class="sidebar__section-title">検索・絞り込み</h3>
+      <label class="field filter-field">
+        <span class="field__label">キーワード検索</span>
+        <div class="search-input-row">
+          <input type="text" id="search-keyword-input" placeholder="本文を検索" />
+        </div>
+      </label>
+      <div class="field filter-field">
+        <span class="field__label">キャラクターで絞り込む（複数選択可・OR）</span>
+        <div class="character-checklist" id="character-checklist"></div>
+      </div>
+      <button type="button" class="btn btn--primary btn--block" id="btn-apply-filter">検索・絞り込みを実行</button>
+      <button type="button" class="btn btn--secondary btn--block" id="btn-clear-filter">絞り込みを解除</button>
+      <p class="sidebar__section-desc" id="filter-summary">絞り込みなし</p>
+    </div>
+
+    <div class="sidebar__section">
+      <h3 class="sidebar__section-title">並べ替え</h3>
+      <button type="button" class="btn btn--secondary btn--block" id="btn-toggle-reorder">並び替えモードに切り替える</button>
+      <p class="sidebar__section-desc">一覧画面でセッションをドラッグして順番を変更できます（誤タップ防止のため、このモード中のみ有効です）。</p>
+    </div>
+
+    <div class="sidebar__section">
+      <h3 class="sidebar__section-title">バックアップ</h3>
+      <button type="button" class="btn btn--secondary btn--block" id="btn-backup-export">インデックス全体を書き出す</button>
+      <label class="btn btn--secondary btn--block" for="backup-file-input">バックアップファイルを読み込む</label>
+      <input type="file" id="backup-file-input" accept=".json,application/json" hidden />
+      <p class="sidebar__section-desc">読み込み時に「復元（全置換）」または「統合（マージ）」を選べます。</p>
+    </div>
+  </aside>
+
+  <main>
+
+    <!-- セッション一覧画面 -->
+    <section class="panel" id="view-list">
+      <h2 class="panel__title">セッション一覧</h2>
+      <p class="panel__desc" id="list-empty-note">まだログが読み込まれていません。メニューの「ファイルを選ぶ」から読み込んでください。</p>
+      <p class="reorder-note" id="reorder-note" hidden>並び替えモード中です。ハンドル（≡）をドラッグして順番を変更できます。</p>
+      <div class="session-list" id="session-list"></div>
+    </section>
+
+    <!-- 個別セッション閲覧画面 -->
+    <section class="panel" id="view-session" hidden>
+      <div class="session-view__header">
+        <button type="button" class="btn btn--secondary btn--small" id="btn-prev-session">◀ 前へ</button>
+        <div class="session-view__title-wrap">
+          <h2 class="session-view__title" id="session-view-title"></h2>
+          <p class="session-view__meta" id="session-view-meta"></p>
+        </div>
+        <button type="button" class="btn btn--secondary btn--small" id="btn-next-session">次へ ▶</button>
+      </div>
+
+      <div class="hit-nav" id="hit-nav" hidden>
+        <span class="hit-nav__label" id="hit-nav-label"></span>
+        <button type="button" class="bottom-bar__icon-btn" id="btn-hit-prev" aria-label="前の一致">◀</button>
+        <button type="button" class="bottom-bar__icon-btn" id="btn-hit-next" aria-label="次の一致">▶</button>
+        <button type="button" class="bottom-bar__icon-btn" id="btn-hit-close" aria-label="絞り込みを閉じる">×</button>
+      </div>
+
+      <div class="message-list" id="session-message-list"></div>
+    </section>
+
+  </main>
+
+</div>
+
+<!-- 差し替え識別モーダル（読み込み・バックアップ統合の両方で使用） -->
+<div class="overlay" id="assign-overlay" hidden>
+  <div class="overlay__backdrop" id="assign-overlay-backdrop"></div>
+  <div class="overlay__sheet" role="dialog" aria-modal="true" aria-labelledby="assign-title">
+    <h3 id="assign-title">読み込んだログの扱いを選ぶ</h3>
+    <p class="panel__desc" id="assign-desc">それぞれ「新規として追加」か、更新版として置き換える既存セッションを選んでください。</p>
+    <div id="assign-list" class="assign-list"></div>
+    <div class="overlay__actions">
+      <button type="button" class="btn btn--secondary btn--block" id="btn-assign-cancel">キャンセル</button>
+      <button type="button" class="btn btn--primary btn--block" id="btn-assign-confirm">この内容で取り込む</button>
+    </div>
+  </div>
+</div>
+
+<!-- バックアップ読み込みモード選択モーダル -->
+<div class="overlay" id="backup-mode-overlay" hidden>
+  <div class="overlay__backdrop" id="backup-mode-overlay-backdrop"></div>
+  <div class="overlay__sheet" role="dialog" aria-modal="true" aria-labelledby="backup-mode-title">
+    <h3 id="backup-mode-title">バックアップの読み込み方法</h3>
+    <p class="panel__desc" id="backup-mode-desc"></p>
+    <button type="button" class="btn btn--danger btn--block" id="btn-backup-restore">復元（全置換）：今のインデックスをすべて置き換える</button>
+    <button type="button" class="btn btn--primary btn--block" id="btn-backup-merge">統合（マージ）：1件ずつ追加・差し替えする</button>
+    <button type="button" class="btn btn--secondary btn--block" id="btn-backup-mode-cancel">キャンセル</button>
+  </div>
+</div>
+
+<!-- バックアップ書き出し案内トースト -->
+<div class="toast" id="backup-prompt-toast" hidden>
+  <p id="backup-prompt-text">ログを取り込みました。バックアップを書き出しますか？</p>
+  <div class="toast__actions">
+    <button type="button" class="btn btn--secondary btn--small" id="btn-backup-prompt-dismiss">あとで</button>
+    <button type="button" class="btn btn--primary btn--small" id="btn-backup-prompt-export">書き出す</button>
+  </div>
+</div>
+
+<!-- 汎用トースト（削除完了など） -->
+<div class="toast toast--simple" id="simple-toast" hidden>
+  <p id="simple-toast-text"></p>
+</div>
+
+<script src="app.js?v=1"></script>
+</body>
+</html>
