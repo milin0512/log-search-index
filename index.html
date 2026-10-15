@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'" />
 <title>ログ検索インデックス</title>
-<link rel="stylesheet" href="style.css?v=5" />
+<link rel="stylesheet" href="style.css?v=6" />
 </head>
 <body>
 
@@ -59,6 +59,7 @@
       <div class="field filter-field">
         <span class="field__label">キャラクターで絞り込む（複数選択可・OR）</span>
         <div class="character-checklist" id="character-checklist"></div>
+        <button type="button" class="btn btn--secondary btn--small character-merge-btn" id="btn-open-merge">キャラクターを統合・解除する</button>
       </div>
       <button type="button" class="btn btn--primary btn--block" id="btn-apply-filter">検索・絞り込みを実行</button>
       <button type="button" class="btn btn--secondary btn--block" id="btn-clear-filter">絞り込みを解除</button>
@@ -128,6 +129,40 @@
   </div>
 </div>
 
+<!-- キャラクター統合モーダル -->
+<div class="overlay" id="merge-overlay" hidden>
+  <div class="overlay__backdrop" id="merge-overlay-backdrop"></div>
+  <div class="overlay__sheet" role="dialog" aria-modal="true" aria-labelledby="merge-title">
+    <h3 id="merge-title">キャラクターの統合</h3>
+    <p class="panel__desc">選んだ発言者を1人のキャラクターとして扱い、絞り込み・ログ表示を代表の名前と色にそろえます。元のログファイルは変わりません。</p>
+
+    <div class="merge-block" id="merge-suggestions-wrap" hidden>
+      <h4 class="merge-block__title">統合候補（表記ゆれ）</h4>
+      <p class="merge-block__desc">スペース・全角半角・末尾の読み仮名だけが違う名前です。「選ぶ」を押すと下の一覧にチェックが入ります。</p>
+      <div id="merge-suggestions"></div>
+    </div>
+
+    <div class="merge-block">
+      <h4 class="merge-block__title">統合するキャラクターを選ぶ（2人以上）</h4>
+      <div class="character-checklist" id="merge-checklist"></div>
+      <label class="field merge-rep-field">
+        <span class="field__label">代表の名前</span>
+        <select id="merge-rep-select" disabled></select>
+      </label>
+      <button type="button" class="btn btn--primary btn--block" id="btn-merge-confirm" disabled>統合する</button>
+    </div>
+
+    <div class="merge-block" id="merge-groups-wrap" hidden>
+      <h4 class="merge-block__title">統合済み</h4>
+      <div id="merge-groups"></div>
+    </div>
+
+    <div class="overlay__actions">
+      <button type="button" class="btn btn--secondary btn--block" id="btn-merge-close">閉じる</button>
+    </div>
+  </div>
+</div>
+
 <!-- バックアップ読み込みモード選択モーダル -->
 <div class="overlay" id="backup-mode-overlay" hidden>
   <div class="overlay__backdrop" id="backup-mode-overlay-backdrop"></div>
@@ -154,6 +189,6 @@
   <p id="simple-toast-text"></p>
 </div>
 
-<script src="app.js?v=5"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>

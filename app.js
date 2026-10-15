@@ -8,9 +8,11 @@ const SCHEMA_VERSION = 1;
 const DEFAULT_COLOR = "#888888";
 
 const DB_NAME = "log-search-index";
-const DB_VERSION = 1;
+const DB_VERSION = 2; // 2: キャラクター統合設定などを保存する settings ストアを追加（2026-10-16）
 const STORE_SESSIONS = "sessions";
 const STORE_SCROLL = "scrollPositions";
+const STORE_SETTINGS = "settings";
+const SETTING_ALIASES = "characterAliases";
 
 /* ============================================================
  * ユーティリティ
@@ -307,6 +309,9 @@ function openDb() {
       if (!db.objectStoreNames.contains(STORE_SCROLL)) {
         db.createObjectStore(STORE_SCROLL, { keyPath: "sessionId" });
       }
+      if (!db.objectStoreNames.contains(STORE_SETTINGS)) {
+        db.createObjectStore(STORE_SETTINGS, { keyPath: "key" });
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -350,6 +355,25 @@ async function dbClearSessions() {
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_SESSIONS, "readwrite");
     tx.objectStore(STORE_SESSIONS).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function dbGetSetting(key) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(STORE_SETTINGS, "readonly").objectStore(STORE_SETTINGS).get(key);
+    req.onsuccess = () => resolve(req.result ? req.result.value : undefined);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function dbPutSetting(key, value) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE_SETTINGS, "readwrite");
+    tx.objectStore(STORE_SETTINGS).put({ key, value });
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -435,6 +459,8 @@ const state = {
   currentSessionId: null,
   reorderMode: false,
   filter: { keyword: "", characters: new Set() },
+  aliases: {}, // キャラクター統合設定 { 元の発言者名: 代表の名前 }（5.4章）
+  charIndex: new Map(), // 代表の名前 -> { count, color, members: Map(元の名前 -> 発言数) }
   hits: [], // [{ sessionId, msgIndex }]
   hitIndex: -1,
 };
@@ -460,6 +486,7 @@ const el = {
   characterChecklist: document.getElementById("character-checklist"),
   btnApplyFilter: document.getElementById("btn-apply-filter"),
   btnClearFilter: document.getElementById("btn-clear-filter"),
+  btnOpenMerge: document.getElementById("btn-open-merge"),
   filterSummary: document.getElementById("filter-summary"),
 
   btnToggleReorder: document.getElementById("btn-toggle-reorder"),
@@ -505,6 +532,17 @@ const el = {
   btnBackupPromptExport: document.getElementById("btn-backup-prompt-export"),
 
   simpleToast: document.getElementById("simple-toast"),
+
+  mergeOverlay: document.getElementById("merge-overlay"),
+  mergeOverlayBackdrop: document.getElementById("merge-overlay-backdrop"),
+  mergeSuggestionsWrap: document.getElementById("merge-suggestions-wrap"),
+  mergeSuggestions: document.getElementById("merge-suggestions"),
+  mergeChecklist: document.getElementById("merge-checklist"),
+  mergeRepSelect: document.getElementById("merge-rep-select"),
+  btnMergeConfirm: document.getElementById("btn-merge-confirm"),
+  mergeGroupsWrap: document.getElementById("merge-groups-wrap"),
+  mergeGroups: document.getElementById("merge-groups"),
+  btnMergeClose: document.getElementById("btn-merge-close"),
   simpleToastText: document.getElementById("simple-toast-text"),
 };
 
@@ -553,22 +591,52 @@ el.btnGotoList.addEventListener("click", async () => {
  * キャラクター一覧（5.4章）
  * ========================================================== */
 
-function renderCharacterChecklist() {
-  const counts = new Map();
-  const colorFor = new Map();
+// 発言者名を、キャラクター統合設定にもとづく代表の名前にする
+function canonicalName(raw) {
+  return Object.prototype.hasOwnProperty.call(state.aliases, raw) ? state.aliases[raw] : raw;
+}
+
+// 全セッションの発言から、代表の名前ごとの発言数・表示色・統合元の名前を集計する。
+// 色は既定色（色なし）以外で最も多く使われた色にする。これにより、同じ名前で
+// 色なし・色ありの発言が混在していても、自動的に色ありの方にそろう（2026-10-16、Mikoto要望）。
+function rebuildCharacterIndex() {
+  const index = new Map();
   state.sessions.forEach((s) =>
     s.messages.forEach((m) => {
       if (!m.speaker) return;
-      counts.set(m.speaker, (counts.get(m.speaker) || 0) + 1);
-      if (!colorFor.has(m.speaker) || colorFor.get(m.speaker) === DEFAULT_COLOR) {
-        colorFor.set(m.speaker, m.color);
+      const name = canonicalName(m.speaker);
+      let entry = index.get(name);
+      if (!entry) {
+        entry = { count: 0, color: DEFAULT_COLOR, colorCounts: new Map(), members: new Map() };
+        index.set(name, entry);
       }
+      entry.count++;
+      entry.members.set(m.speaker, (entry.members.get(m.speaker) || 0) + 1);
+      if (m.color !== DEFAULT_COLOR) entry.colorCounts.set(m.color, (entry.colorCounts.get(m.color) || 0) + 1);
     })
   );
-  // 発言数の多い順（同数なら名前順）に並べる（2026-10-16、Mikoto要望）
-  const names = Array.from(counts.keys()).sort(
-    (a, b) => counts.get(b) - counts.get(a) || a.localeCompare(b, "ja")
+  index.forEach((entry) => {
+    let best = 0;
+    entry.colorCounts.forEach((n, color) => {
+      if (n > best) {
+        best = n;
+        entry.color = color;
+      }
+    });
+  });
+  state.charIndex = index;
+}
+
+// 発言数の多い順（同数なら名前順）に並べた代表の名前の一覧（2026-10-16、Mikoto要望）
+function sortedCharacterNames() {
+  return Array.from(state.charIndex.keys()).sort(
+    (a, b) => state.charIndex.get(b).count - state.charIndex.get(a).count || a.localeCompare(b, "ja")
   );
+}
+
+function renderCharacterChecklist() {
+  rebuildCharacterIndex();
+  const names = sortedCharacterNames();
 
   el.characterChecklist.innerHTML = "";
   if (names.length === 0) {
@@ -580,6 +648,7 @@ function renderCharacterChecklist() {
   }
 
   names.forEach((name) => {
+    const entry = state.charIndex.get(name);
     const label = document.createElement("label");
     label.className = "character-check";
 
@@ -590,10 +659,17 @@ function renderCharacterChecklist() {
 
     const dot = document.createElement("span");
     dot.className = "color-dot";
-    dot.style.background = colorFor.get(name) || DEFAULT_COLOR;
+    dot.style.background = entry.color;
 
     const textSpan = document.createElement("span");
-    textSpan.textContent = `${name}（${counts.get(name)}）`;
+    textSpan.textContent = `${name}（${entry.count}）`;
+    const others = Array.from(entry.members.keys()).filter((n) => n !== name);
+    if (others.length) {
+      const sub = document.createElement("span");
+      sub.className = "character-check__members";
+      sub.textContent = `統合: ${others.join("、")}`;
+      textSpan.appendChild(sub);
+    }
 
     label.appendChild(checkbox);
     label.appendChild(dot);
@@ -601,6 +677,215 @@ function renderCharacterChecklist() {
     el.characterChecklist.appendChild(label);
   });
 }
+
+/* ============================================================
+ * キャラクターの統合（5.4章、2026-10-16追加）
+ * 選んだ複数の発言者名を、1人のキャラクター（代表の名前）として扱う。
+ * 元のログは書き換えず、表示・絞り込みのときだけ代表の名前・色に読み替える。
+ * ========================================================== */
+
+// 統合候補の判定用キー。全角半角・スペースの有無・末尾の読み仮名（「立花 果凛（たちばな かりん）」
+// のような括弧書き）の違いを無視する（2026-10-16、Mikoto要望）。
+function characterMatchKey(name) {
+  return name
+    .normalize("NFKC")
+    .replace(/\s*\([^()]*\)\s*$/, "")
+    .replace(/\s+/g, "");
+}
+
+function findMergeSuggestions() {
+  const groups = new Map();
+  sortedCharacterNames().forEach((name) => {
+    const key = characterMatchKey(name);
+    if (!key) return;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(name);
+  });
+  return Array.from(groups.values()).filter((g) => g.length >= 2);
+}
+
+async function saveAliases() {
+  try {
+    await dbPutSetting(SETTING_ALIASES, state.aliases);
+  } catch (e) {
+    showSimpleToast("統合設定の保存中にエラーが発生しました。");
+  }
+}
+
+// 統合設定の変更後、絞り込み中のキャラクター・検索結果・表示をすべて新しい設定に合わせる
+function refreshAfterAliasChange() {
+  state.filter.characters = new Set(Array.from(state.filter.characters).map(canonicalName));
+  renderCharacterChecklist();
+  const hasFilter = state.filter.keyword.trim() !== "" || state.filter.characters.size > 0;
+  if (hasFilter) {
+    state.hits = computeHits();
+    state.hitIndex = state.hits.length > 0 ? Math.min(Math.max(state.hitIndex, 0), state.hits.length - 1) : -1;
+  }
+  updateFilterSummary();
+  if (state.view === "session") {
+    const session = state.sessions.find((s) => s.id === state.currentSessionId);
+    if (session) renderSessionMessageList(session);
+    updateHitNav();
+  } else {
+    renderSessionList();
+  }
+  renderMergeModal();
+}
+
+async function mergeCharacters(selectedNames, rep) {
+  const selected = new Set(selectedNames);
+  // すでに統合済みのものも含め、選んだキャラクターに属する元の名前をすべて代表の名前に向ける
+  Object.keys(state.aliases).forEach((raw) => {
+    if (selected.has(state.aliases[raw])) state.aliases[raw] = rep;
+  });
+  selectedNames.forEach((name) => {
+    const entry = state.charIndex.get(name);
+    if (entry) entry.members.forEach((_, raw) => (state.aliases[raw] = rep));
+    state.aliases[name] = rep;
+  });
+  delete state.aliases[rep];
+  await saveAliases();
+  refreshAfterAliasChange();
+  showSimpleToast(`${selectedNames.length}件を「${rep}」に統合しました。`);
+}
+
+async function unmergeCharacter(rep) {
+  const entry = state.charIndex.get(rep);
+  Object.keys(state.aliases).forEach((raw) => {
+    if (state.aliases[raw] === rep) delete state.aliases[raw];
+  });
+  // 解除したキャラクターで絞り込んでいた場合は、元の名前すべてを絞り込み対象に戻す
+  if (state.filter.characters.has(rep) && entry) {
+    entry.members.forEach((_, raw) => state.filter.characters.add(raw));
+  }
+  await saveAliases();
+  refreshAfterAliasChange();
+  showSimpleToast(`「${rep}」の統合を解除しました。`);
+}
+
+function getMergeSelection() {
+  return Array.from(el.mergeChecklist.querySelectorAll("input[type=checkbox]:checked")).map((cb) => cb.value);
+}
+
+// 代表の名前の選択肢を、選んだキャラクターに合わせて作り直す（初期値は発言数の最も多い名前）
+function updateMergeRepSelect() {
+  const selected = getMergeSelection();
+  const prev = el.mergeRepSelect.value;
+  el.mergeRepSelect.innerHTML = "";
+  selected
+    .slice()
+    .sort((a, b) => state.charIndex.get(b).count - state.charIndex.get(a).count)
+    .forEach((name) => {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = `${name}（${state.charIndex.get(name).count}）`;
+      el.mergeRepSelect.appendChild(opt);
+    });
+  if (selected.includes(prev)) el.mergeRepSelect.value = prev;
+  el.mergeRepSelect.disabled = selected.length < 2;
+  el.btnMergeConfirm.disabled = selected.length < 2;
+}
+
+function buildMergeRow(text, buttonLabel, onClick) {
+  const row = document.createElement("div");
+  row.className = "merge-row";
+  const span = document.createElement("span");
+  span.className = "merge-row__text";
+  span.textContent = text;
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "btn btn--secondary btn--small";
+  btn.textContent = buttonLabel;
+  btn.addEventListener("click", onClick);
+  row.appendChild(span);
+  row.appendChild(btn);
+  return row;
+}
+
+function renderMergeModal() {
+  if (el.mergeOverlay.hidden) return;
+  const names = sortedCharacterNames();
+
+  // 統合候補（表記ゆれ）
+  const suggestions = findMergeSuggestions();
+  el.mergeSuggestions.innerHTML = "";
+  el.mergeSuggestionsWrap.hidden = suggestions.length === 0;
+  suggestions.forEach((group) => {
+    el.mergeSuggestions.appendChild(
+      buildMergeRow(group.join(" ／ "), "選ぶ", () => {
+        const set = new Set(group);
+        el.mergeChecklist.querySelectorAll("input[type=checkbox]").forEach((cb) => {
+          cb.checked = set.has(cb.value);
+        });
+        updateMergeRepSelect();
+        el.mergeRepSelect.scrollIntoView({ block: "nearest" });
+      })
+    );
+  });
+
+  // 統合するキャラクターの選択（作り直しても選択状態は保つ）
+  const keep = new Set(getMergeSelection());
+  el.mergeChecklist.innerHTML = "";
+  names.forEach((name) => {
+    const entry = state.charIndex.get(name);
+    const label = document.createElement("label");
+    label.className = "character-check";
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.value = name;
+    cb.checked = keep.has(name);
+    cb.addEventListener("change", updateMergeRepSelect);
+    const dot = document.createElement("span");
+    dot.className = "color-dot";
+    dot.style.background = entry.color;
+    const textSpan = document.createElement("span");
+    textSpan.textContent = `${name}（${entry.count}）`;
+    label.appendChild(cb);
+    label.appendChild(dot);
+    label.appendChild(textSpan);
+    el.mergeChecklist.appendChild(label);
+  });
+  updateMergeRepSelect();
+
+  // 統合済みの一覧（現在のログにない名前の統合設定も、解除できるよう表示する）
+  const byRep = new Map();
+  Object.keys(state.aliases).forEach((raw) => {
+    const rep = state.aliases[raw];
+    if (!byRep.has(rep)) byRep.set(rep, []);
+    byRep.get(rep).push(raw);
+  });
+  el.mergeGroups.innerHTML = "";
+  el.mergeGroupsWrap.hidden = byRep.size === 0;
+  byRep.forEach((others, rep) => {
+    el.mergeGroups.appendChild(buildMergeRow(`${rep} ← ${others.join("、")}`, "解除", () => unmergeCharacter(rep)));
+  });
+}
+
+function openMergeModal() {
+  rebuildCharacterIndex();
+  if (state.charIndex.size === 0) {
+    showSimpleToast("ログを読み込むと発言者を統合できます。");
+    return;
+  }
+  el.mergeChecklist.innerHTML = "";
+  el.mergeOverlay.hidden = false;
+  renderMergeModal();
+}
+
+function closeMergeModal() {
+  el.mergeOverlay.hidden = true;
+}
+
+el.btnOpenMerge.addEventListener("click", openMergeModal);
+el.btnMergeClose.addEventListener("click", closeMergeModal);
+el.mergeOverlayBackdrop.addEventListener("click", closeMergeModal);
+el.btnMergeConfirm.addEventListener("click", () => {
+  const selected = getMergeSelection();
+  const rep = el.mergeRepSelect.value;
+  if (selected.length < 2 || !selected.includes(rep)) return;
+  el.mergeChecklist.querySelectorAll("input[type=checkbox]").forEach((cb) => (cb.checked = false));
+  mergeCharacters(selected, rep);
+});
 
 /* ============================================================
  * 検索・絞り込み（5.4章）
@@ -614,7 +899,7 @@ function computeHits() {
   const hits = [];
   state.sessions.forEach((session) => {
     session.messages.forEach((m, idx) => {
-      const speakerOk = chars.size === 0 || chars.has(m.speaker);
+      const speakerOk = chars.size === 0 || chars.has(canonicalName(m.speaker));
       const keywordOk = !kw || m.text.toLowerCase().includes(kw);
       if (speakerOk && keywordOk) hits.push({ sessionId: session.id, msgIndex: idx });
     });
@@ -910,15 +1195,18 @@ function renderSessionMessageList(session) {
     line.className = "msg-line" + (m.category === "info" ? " msg-line--info" : "");
     line.dataset.idx = String(idx);
 
-    const isCharHit = chars.size > 0 && chars.has(m.speaker);
+    const speakerName = m.speaker ? canonicalName(m.speaker) : "";
+    const isCharHit = chars.size > 0 && chars.has(speakerName);
     const isKwHit = !!kw && m.text.toLowerCase().includes(kw.toLowerCase());
     if (isCharHit || isKwHit) line.classList.add("is-hit");
 
     if (m.speaker) {
       const sp = document.createElement("span");
       sp.className = "msg-line__speaker";
-      sp.textContent = m.speaker + "：";
-      sp.style.color = m.color;
+      // 統合したキャラクターは代表の名前・色で表示する（2026-10-16、Mikoto確認）
+      const charEntry = state.charIndex.get(speakerName);
+      sp.textContent = speakerName + "：";
+      sp.style.color = charEntry ? charEntry.color : m.color;
       line.appendChild(sp);
     }
 
@@ -1268,6 +1556,7 @@ function exportBackup() {
     schemaVersion: SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
     sessions: state.sessions,
+    characterAliases: state.aliases,
   };
   const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -1303,7 +1592,30 @@ function normalizeBackupSessions(list) {
     }));
 }
 
+// 外部ファイル由来の統合設定を検査する。文字列どうしの対応だけを残し、
+// 「A→B→C」のような連鎖は最終的な代表の名前に付け替え、循環するものは捨てる。
+function normalizeAliases(obj) {
+  const src = {};
+  if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+    Object.keys(obj).forEach((k) => {
+      if (typeof obj[k] === "string" && k && obj[k] && k !== obj[k]) src[k] = obj[k];
+    });
+  }
+  const out = {};
+  Object.keys(src).forEach((k) => {
+    let rep = src[k];
+    const seen = new Set([k]);
+    while (Object.prototype.hasOwnProperty.call(src, rep) && !seen.has(rep)) {
+      seen.add(rep);
+      rep = src[rep];
+    }
+    if (rep !== k && !Object.prototype.hasOwnProperty.call(src, rep)) out[k] = rep;
+  });
+  return out;
+}
+
 let pendingBackupData = null;
+let pendingBackupAliases = {};
 
 el.backupFileInput.addEventListener("change", async (e) => {
   const file = e.target.files && e.target.files[0];
@@ -1314,6 +1626,7 @@ el.backupFileInput.addEventListener("change", async (e) => {
     const data = JSON.parse(text);
     if (!data || !Array.isArray(data.sessions)) throw new Error("invalid backup shape");
     pendingBackupData = normalizeBackupSessions(data.sessions);
+    pendingBackupAliases = normalizeAliases(data.characterAliases);
     el.backupModeDesc.textContent = `${pendingBackupData.length}件のセッションを含むバックアップです。読み込み方法を選んでください。`;
     el.backupModeOverlay.hidden = false;
   } catch (err) {
@@ -1350,6 +1663,10 @@ el.btnBackupRestore.addEventListener("click", async () => {
 
   state.sessions = restored;
   pendingBackupData = null;
+  // 復元（全置換）では、キャラクター統合設定もバックアップの内容に置き換える
+  state.aliases = pendingBackupAliases;
+  pendingBackupAliases = {};
+  await saveAliases();
   clearFilterState();
   await backToList();
   renderCharacterChecklist();
@@ -1373,8 +1690,16 @@ el.btnBackupMerge.addEventListener("click", () => {
       messages: s.messages,
     },
   }));
+  const backupAliases = pendingBackupAliases;
+  pendingBackupAliases = {};
   pendingBackupData = null;
-  openAssignModal(items, applyImportDecisions);
+  openAssignModal(items, async (confirmedItems, decisions) => {
+    // 統合（マージ）では、キャラクター統合設定も足し合わせる（同じ名前の設定が食い違うときは今の設定を優先）。
+    // 取り込みを確定したときだけ反映し、キャンセルしたときは今の設定のままにする。
+    state.aliases = normalizeAliases({ ...backupAliases, ...state.aliases });
+    await saveAliases();
+    await applyImportDecisions(confirmedItems, decisions);
+  });
 });
 
 /* ============================================================
@@ -1391,6 +1716,11 @@ function isIOSLike() {
 
 async function init() {
   if (isIOSLike()) el.folderPickerArea.hidden = true;
+  try {
+    state.aliases = normalizeAliases(await dbGetSetting(SETTING_ALIASES));
+  } catch (e) {
+    state.aliases = {};
+  }
   try {
     state.sessions = (await dbGetAllSessions()).sort((a, b) => a.order - b.order);
   } catch (e) {
