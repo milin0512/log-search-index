@@ -138,7 +138,55 @@ function getTabCategory(tab) {
   return "main";
 }
 
-// ココフォリアの生HTML書き出し（4章）。1発言 = <p style="color:...;"> の中に
+// ココフォリアの生HTML書き出し・新形式（2026年9月頃から）。1発言 = <article class="message">。
+// 発言者は .speaker（色は style の --speaker-color）、タブは .channel-name / data-channel、
+// 本文は .message-text。ダイスロールの結果文は .message-text とは別の .roll-result に
+// 入るため、コマンド文と結合して1つの本文にする（CClog app.js parseCcfoliaHtmlNew と同じ）。
+// システムメッセージ（article.message.system）は発言者なしの1行として扱う。
+function parseCocofoliaHtmlNew(doc, articles) {
+  const messages = [];
+  let firstTimestamp = null;
+  articles.forEach((article) => {
+    const channel = article.getAttribute("data-channel") || "main";
+    const channelNameEl = article.querySelector(".channel-name");
+    const tabName = channelNameEl ? getTextWithBr(channelNameEl) : "";
+    // data-channel が main/info/other 以外（独自タブはIDになる）のときはタブ名から判定する
+    const category = ["main", "info", "other"].includes(channel) ? channel : getTabCategory(tabName);
+
+    const timeEl = article.querySelector("time[datetime]");
+    if (!firstTimestamp && timeEl) firstTimestamp = timeEl.getAttribute("datetime");
+
+    const textEl = article.querySelector(".message-text");
+    const commandText = textEl ? getTextWithBr(textEl) : "";
+
+    if (article.classList.contains("system")) {
+      if (commandText) messages.push({ speaker: "", text: commandText, color: normalizeColor(null), category });
+      return;
+    }
+
+    const speakerEl = article.querySelector(".speaker");
+    const speaker = speakerEl ? getTextWithBr(speakerEl) : "";
+    const speakerStyle = speakerEl ? speakerEl.getAttribute("style") || "" : "";
+    const colorMatch = speakerStyle.match(/--speaker-color:\s*(#[0-9a-fA-F]{6})/);
+    const color = normalizeColor(colorMatch ? colorMatch[1] : null);
+
+    const rollEl = article.querySelector(".roll-result");
+    const rollText = rollEl ? getTextWithBr(rollEl) : "";
+    const text = [commandText, rollText].filter(Boolean).join("\n");
+    messages.push({ speaker, text, color, category });
+  });
+  return { messages, firstTimestamp };
+}
+
+// ISO形式の日時（UTC）を、閲覧端末のローカル日付 "YYYY-MM-DD" にする
+function isoToLocalDate(iso) {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+// ココフォリアの生HTML書き出し・旧形式（4章）。1発言 = <p style="color:...;"> の中に
 // <span>タブ</span><span>発言者</span> : <span>本文</span> という構造。
 function parseCocofoliaHtml(doc) {
   const paragraphs = doc.querySelectorAll('p[style*="color:"]');
@@ -161,10 +209,36 @@ function parseCocofoliaHtml(doc) {
 // <span class="ccpv-speaker">発言者</span>：本文</p> という構造（CClog app.js
 // buildPreviewLineHtml参照）。CClog本体はこの形式を読み込めない仕様のため、
 // 本ツール独自にパースする。
+// 2026年9月以降のCClogは、「キャラクター発言」に設定した発言者を
+// <div class="ccpv-bubble-row ccpv-tab-..."> の吹き出し形式で、システムメッセージを
+// <p class="ccpv-line ccpv-system"> で書き出すため、これらも文書順に読む。
+function getPreviewCategory(node) {
+  if (node.classList.contains("ccpv-tab-info")) return "info";
+  if (node.classList.contains("ccpv-tab-other")) return "other";
+  return "main";
+}
+
 function parsePreviewHtml(doc) {
-  const lines = doc.querySelectorAll(".ccpv-line");
+  const lines = doc.querySelectorAll(".ccpv-line, .ccpv-bubble-row");
   const messages = [];
   lines.forEach((p) => {
+    if (p.classList.contains("ccpv-bubble-row")) {
+      const nameEl = p.querySelector(".ccpv-bubble-name");
+      const bubbleEl = p.querySelector(".ccpv-bubble");
+      const avatarEl = p.querySelector(".ccpv-bubble-avatar");
+      const m = ((avatarEl && avatarEl.getAttribute("style")) || "").match(/border-color:\s*(#[0-9a-fA-F]{6})/);
+      messages.push({
+        speaker: nameEl ? getTextWithBr(nameEl) : "",
+        text: bubbleEl ? getTextWithBr(bubbleEl) : "",
+        color: normalizeColor(m ? m[1] : null),
+        category: getPreviewCategory(p),
+      });
+      return;
+    }
+    if (p.classList.contains("ccpv-system")) {
+      messages.push({ speaker: "", text: getTextWithBr(p), color: normalizeColor(null), category: "main" });
+      return;
+    }
     if (p.classList.contains("ccpv-tab-info")) {
       messages.push({ speaker: "", text: getTextWithBr(p), color: normalizeColor(null), category: "info" });
       return;
@@ -189,8 +263,14 @@ function parsePreviewHtml(doc) {
 
 function parseLogHtml(htmlString) {
   const doc = new DOMParser().parseFromString(htmlString, "text/html");
-  if (doc.querySelector(".ccpv-line")) {
+  if (doc.querySelector(".ccpv-line, .ccpv-bubble-row")) {
     return { format: "preview", messages: parsePreviewHtml(doc) };
+  }
+  // ココフォリアは新形式（article.message）と旧形式の両方がありうる（新形式を先に判定）
+  const articles = doc.querySelectorAll("article.message");
+  if (articles.length > 0) {
+    const { messages, firstTimestamp } = parseCocofoliaHtmlNew(doc, articles);
+    return { format: "cocofolia", messages, logDate: isoToLocalDate(firstTimestamp) };
   }
   if (doc.querySelector('p[style*="color:"] > span')) {
     return { format: "cocofolia", messages: parseCocofoliaHtml(doc) };
@@ -372,6 +452,8 @@ const el = {
   btnGotoList: document.getElementById("btn-goto-list"),
 
   fileInput: document.getElementById("file-input"),
+  folderInput: document.getElementById("folder-input"),
+  folderPickerArea: document.getElementById("folder-picker-area"),
   loadStatus: document.getElementById("load-status"),
 
   searchKeywordInput: document.getElementById("search-keyword-input"),
@@ -1020,67 +1102,150 @@ async function applyImportDecisions(items, decisions) {
     state.sessions = insertNewSessionsIntoOrder(state.sessions, withIds);
   }
 
-  try {
-    await dbPutAllSessions(state.sessions);
-  } catch (e) {
-    showSimpleToast("保存中にエラーが発生しました。");
-  }
-
-  renderSessionList();
-  renderCharacterChecklist();
-  showBackupPromptToast();
+  await saveAfterImport();
 }
 
 /* ============================================================
  * ログの読み込み・追加（5.1・5.2章）
  * ========================================================== */
 
-el.fileInput.addEventListener("change", async (e) => {
+el.fileInput.addEventListener("change", (e) => {
   const files = Array.from(e.target.files || []);
   e.target.value = "";
-  if (files.length === 0) return;
+  if (files.length > 0) importLogFiles(files, { fromFolder: false });
+});
 
-  el.loadStatus.textContent = "読み込み中...";
-  const items = [];
-  const failedNames = [];
+el.folderInput.addEventListener("change", (e) => {
+  const files = Array.from(e.target.files || []);
+  e.target.value = "";
+  if (files.length > 0) importLogFiles(files, { fromFolder: true });
+});
 
-  for (const file of files) {
-    try {
-      const text = await file.text();
-      const parsed = parseLogHtml(text);
-      if (!parsed || parsed.messages.length === 0) {
-        failedNames.push(file.name);
-        continue;
-      }
-      const { title, date } = extractTitleAndDate(file.name);
-      const draft = {
-        title,
-        date,
-        dateAuto: !!date,
-        format: parsed.format,
-        fileName: file.name,
-        addedAt: new Date().toISOString(),
-        messages: normalizeMessages(parsed.messages),
-      };
-      items.push({
-        tempId: uid(),
-        label: `${title}${date ? `（${date}）` : ""} / ${file.name}`,
-        draft,
-      });
-    } catch (err) {
-      failedNames.push(file.name);
-    }
+// ファイル名の比較用。Googleドライブ・OS間でUnicode正規化（NFC/NFD）が揺れるため揃える。
+function fileNameKey(name) {
+  return toText(name).normalize("NFC");
+}
+
+function sameMessages(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+// ログHTMLの取り込み（5.1・5.2章）。
+// 既存セッションと同じファイル名のものは、中身が変わっていれば自動で差し替え、
+// 変わっていなければ何もしない（2026-10-16、Mikoto確認）。
+// 同名がないものは、フォルダ読み込みなら新規として自動追加し、ファイル選択なら
+// 従来どおり差し替え識別モーダルで「新規／差し替え先」を選ぶ（ファイル名が変わった更新版用）。
+async function importLogFiles(allFiles, { fromFolder }) {
+  const files = allFiles.filter((f) => /\.html?$/i.test(f.name) && !f.name.startsWith("."));
+  if (files.length === 0) {
+    el.loadStatus.textContent = "HTMLファイルが見つかりませんでした。";
+    return;
   }
 
-  el.loadStatus.textContent = failedNames.length
-    ? `${items.length}件を認識しました。${failedNames.length}件は形式を認識できませんでした（${failedNames.join("、")}）。`
-    : items.length
-    ? `${items.length}件を認識しました。`
-    : "ココフォリアの生HTML、またはCClogのプレビュー用HTMLとして認識できるファイルがありませんでした。";
+  const existingByName = new Map(state.sessions.map((s) => [fileNameKey(s.fileName), s]));
+  const seenNames = new Set();
+  const newItems = [];
+  const failedNames = [];
+  let replaced = 0;
+  let unchanged = 0;
+  let duplicated = 0;
 
-  if (items.length === 0) return;
-  openAssignModal(items, applyImportDecisions);
-});
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    el.loadStatus.textContent = `読み込み中...（${i + 1}/${files.length}）`;
+    // 件数が多いときも進捗表示が更新されるよう、描画の機会を作る
+    if (i % 5 === 0) await new Promise((r) => setTimeout(r, 0));
+
+    const key = fileNameKey(file.name);
+    if (seenNames.has(key)) {
+      // サブフォルダに同名ファイルがある場合などは、最初の1件だけを使う
+      duplicated++;
+      continue;
+    }
+    seenNames.add(key);
+
+    let parsed = null;
+    try {
+      parsed = parseLogHtml(await file.text());
+    } catch (err) {
+      parsed = null;
+    }
+    if (!parsed || parsed.messages.length === 0) {
+      failedNames.push(file.name);
+      continue;
+    }
+
+    const extracted = extractTitleAndDate(file.name);
+    const date = extracted.date || parsed.logDate || null;
+    const draft = {
+      title: extracted.title,
+      date,
+      dateAuto: !!date,
+      format: parsed.format,
+      fileName: file.name,
+      addedAt: new Date().toISOString(),
+      messages: normalizeMessages(parsed.messages),
+    };
+
+    const existing = existingByName.get(key);
+    if (existing) {
+      if (sameMessages(existing.messages, draft.messages)) {
+        unchanged++;
+      } else {
+        // draft は id・order を持たないため、既存セッションのid・order（並び順）は変わらない
+        Object.assign(existing, draft);
+        replaced++;
+      }
+      continue;
+    }
+
+    newItems.push({
+      tempId: uid(),
+      label: `${draft.title}${date ? `（${date}）` : ""} / ${file.name}`,
+      draft,
+    });
+  }
+
+  const parts = [];
+  if (fromFolder || newItems.length === 0) {
+    if (newItems.length) parts.push(`新規追加 ${newItems.length}件`);
+  } else {
+    parts.push(`新しいファイル ${newItems.length}件`);
+  }
+  if (replaced) parts.push(`最新版に差し替え ${replaced}件`);
+  if (unchanged) parts.push(`変更なし ${unchanged}件`);
+  if (duplicated) parts.push(`同名ファイルのため無視 ${duplicated}件`);
+  let status = parts.length ? parts.join("・") + "。" : "";
+  if (failedNames.length) {
+    status += `${failedNames.length}件はログとして認識できませんでした（${failedNames.join("、")}）。`;
+  }
+  if (!status) status = "取り込めるログがありませんでした。";
+  el.loadStatus.textContent = status;
+
+  if (!fromFolder && newItems.length > 0) {
+    // 自動差し替え分を先に保存してから、残りを差し替え識別モーダルに回す
+    if (replaced) await saveAfterImport();
+    openAssignModal(newItems, applyImportDecisions);
+    return;
+  }
+
+  if (newItems.length > 0) {
+    const withIds = newItems.map((item) => ({ ...item.draft, id: uid() }));
+    state.sessions = insertNewSessionsIntoOrder(state.sessions, withIds);
+  }
+  if (newItems.length > 0 || replaced > 0) await saveAfterImport();
+}
+
+async function saveAfterImport() {
+  try {
+    await dbPutAllSessions(state.sessions);
+  } catch (e) {
+    showSimpleToast("保存中にエラーが発生しました。");
+  }
+  renderSessionList();
+  renderCharacterChecklist();
+  showBackupPromptToast();
+}
 
 /* ============================================================
  * バックアップの書き出し・復元・統合（5.6章）
@@ -1204,7 +1369,16 @@ el.btnBackupMerge.addEventListener("click", () => {
  * 初期化
  * ========================================================== */
 
+// iPhone/iPadのSafariはフォルダ選択（webkitdirectory）に対応していないため、
+// フォルダ読み込みボタンは出さず「ファイルを選ぶ」（ファイルアプリでの複数選択）だけにする。
+// iPadOSはMacと同じUAを名乗るので、タッチ点数でも判定する。
+function isIOSLike() {
+  const ua = navigator.userAgent || "";
+  return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+}
+
 async function init() {
+  if (isIOSLike() || !("webkitdirectory" in el.folderInput)) el.folderPickerArea.hidden = true;
   try {
     state.sessions = (await dbGetAllSessions()).sort((a, b) => a.order - b.order);
   } catch (e) {

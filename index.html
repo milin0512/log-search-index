@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'" />
 <title>ログ検索インデックス</title>
-<link rel="stylesheet" href="style.css?v=1" />
+<link rel="stylesheet" href="style.css?v=2" />
 </head>
 <body>
 
@@ -31,8 +31,13 @@
 
     <div class="sidebar__section">
       <h3 class="sidebar__section-title">ログの読み込み</h3>
-      <p class="sidebar__section-desc">ココフォリアの生HTML、またはCClogのプレビュー用HTMLを選んでください（複数可）。</p>
-      <label class="btn btn--secondary btn--block" for="file-input">ファイルを選ぶ</label>
+      <p class="sidebar__section-desc">ココフォリアの書き出しHTML（新形式・旧形式）、またはCClogのプレビュー用HTMLを読み込みます。取り込み済みと同じファイル名のログは、内容が変わっていれば自動で最新版に差し替えます。</p>
+      <div id="folder-picker-area">
+        <label class="btn btn--primary btn--block" for="folder-input">フォルダを選ぶ</label>
+        <input type="file" id="folder-input" webkitdirectory multiple hidden />
+        <p class="sidebar__section-desc">Googleドライブ（PCの同期フォルダ）のログフォルダを丸ごと読み込めます。</p>
+      </div>
+      <label class="btn btn--secondary btn--block" for="file-input">ファイルを選ぶ（複数可）</label>
       <input type="file" id="file-input" accept=".html,text/html" multiple hidden />
       <p class="load-status" id="load-status"></p>
     </div>
@@ -144,6 +149,6 @@
   <p id="simple-toast-text"></p>
 </div>
 
-<script src="app.js?v=1"></script>
+<script src="app.js?v=2"></script>
 </body>
 </html>
