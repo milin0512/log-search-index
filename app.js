@@ -1369,9 +1369,16 @@ el.btnBackupMerge.addEventListener("click", () => {
  * 初期化
  * ========================================================== */
 
+// iPhone/iPadのSafariでは「フォルダを選ぶ」が通常のファイル選択になることを実機で確認したため
+// （2026-10-16、Mikoto確認）、iOS系ではボタンを出さず「ファイルを選ぶ」だけにする。
+// iPadOSはMacと同じUAを名乗るので、タッチ点数でも判定する。
+function isIOSLike() {
+  const ua = navigator.userAgent || "";
+  return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+}
+
 async function init() {
-  // 「フォルダを選ぶ」はiPhone/iPadでも表示する（2026-10-16、Mikoto要望）。
-  // フォルダ選択（webkitdirectory）に対応していない環境では、通常のファイル選択として動く。
+  if (isIOSLike()) el.folderPickerArea.hidden = true;
   try {
     state.sessions = (await dbGetAllSessions()).sort((a, b) => a.order - b.order);
   } catch (e) {
