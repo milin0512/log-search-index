@@ -375,7 +375,8 @@ main {
   word-break: break-word;
 }
 .assign-row select,
-.merge-rep-field select {
+.merge-rep-field select,
+.role-select {
   width: 100%;
   font-size: 0.95rem;
   padding: 8px;
@@ -463,7 +464,7 @@ main {
   }
   .btn--secondary { background: #2a2d35; color: var(--color-text); }
   .btn--secondary:active { background: #33363d; }
-  .field input[type="text"], .assign-row select, .merge-rep-field select { background: #1a1c22; color: var(--color-text); }
+  .field input[type="text"], .assign-row select, .merge-rep-field select, .role-select { background: #1a1c22; color: var(--color-text); }
   .character-checklist { background: #1a1c22; }
   .overlay__sheet { background: #1f2229; }
   .bottom-bar__icon-btn { background: #2a2d35; border-color: var(--color-border); }
@@ -550,3 +551,53 @@ main {
 .merge-row + .merge-row { border-top: 1px dashed var(--color-border); }
 .merge-row__text { flex: 1; min-width: 0; font-size: 0.9rem; overflow-wrap: anywhere; }
 .merge-row .btn { flex: none; }
+
+/* KP・PL（地の文）の設定（2026-10-16追加） */
+.character-merge-btn + .character-merge-btn { margin-top: 6px; }
+.roles-list { margin-bottom: 14px; }
+.roles-list .merge-row { gap: 8px; }
+.role-select { width: auto; flex: none; font-size: 0.88rem; padding: 6px 8px; }
+
+/* 発言の表示の種類（CClogのプレビュー用HTMLにならう、2026-10-16） */
+.msg-line--kp { border-left-color: #3b6fa8; }
+.msg-line--kp > .msg-line__speaker { color: #3b6fa8; }
+.msg-line--pl { border-left-color: #a85a3b; }
+.msg-line--pl > .msg-line__speaker { color: #a85a3b; }
+.msg-line--other { color: #999; }
+.msg-line--other .msg-line__speaker,
+.msg-line--other .msg-line__bubble-name { color: #999 !important; }
+.msg-line--character.msg-line--other .msg-line__bubble { opacity: 0.7; }
+.msg-line__bubble-name {
+  font-weight: 700;
+  font-size: 0.85rem;
+  margin-bottom: 2px;
+}
+.msg-line__bubble {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  margin-left: 8px;
+  background: rgba(0, 0, 0, 0.045);
+  border-radius: 14px;
+  padding: 0.5em 0.9em;
+}
+.msg-line__bubble::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 12px;
+  border-width: 6px 8px 6px 0;
+  border-style: solid;
+  border-color: transparent rgba(0, 0, 0, 0.045) transparent transparent;
+}
+@media (prefers-color-scheme: dark) {
+  .msg-line--kp { border-left-color: #6ea3e0; }
+  .msg-line--kp > .msg-line__speaker { color: #6ea3e0; }
+  .msg-line--pl { border-left-color: #e0916e; }
+  .msg-line--pl > .msg-line__speaker { color: #e0916e; }
+  .msg-line--other { color: #6b7078; }
+  .msg-line--other .msg-line__speaker,
+  .msg-line--other .msg-line__bubble-name { color: #6b7078 !important; }
+  .msg-line__bubble { background: rgba(255, 255, 255, 0.08); }
+  .msg-line__bubble::before { border-color: transparent rgba(255, 255, 255, 0.08) transparent transparent; }
+}

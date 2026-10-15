@@ -13,6 +13,7 @@ const STORE_SESSIONS = "sessions";
 const STORE_SCROLL = "scrollPositions";
 const STORE_SETTINGS = "settings";
 const SETTING_ALIASES = "characterAliases";
+const SETTING_SPEAKER_ROLES = "speakerRoles";
 
 /* ============================================================
  * ユーティリティ
@@ -461,6 +462,7 @@ const state = {
   filter: { keyword: "", characters: new Set() },
   aliases: {}, // キャラクター統合設定 { 元の発言者名: 代表の名前 }（5.4章）
   charIndex: new Map(), // 代表の名前 -> { count, color, members: Map(元の名前 -> 発言数) }
+  speakerRoles: {}, // KP・PLの手動設定 { 代表の名前: "kp" | "pl" | "character" }（5.3章）
   hits: [], // [{ sessionId, msgIndex }]
   hitIndex: -1,
 };
@@ -487,6 +489,7 @@ const el = {
   btnApplyFilter: document.getElementById("btn-apply-filter"),
   btnClearFilter: document.getElementById("btn-clear-filter"),
   btnOpenMerge: document.getElementById("btn-open-merge"),
+  btnOpenRoles: document.getElementById("btn-open-roles"),
   filterSummary: document.getElementById("filter-summary"),
 
   btnToggleReorder: document.getElementById("btn-toggle-reorder"),
@@ -543,6 +546,11 @@ const el = {
   mergeGroupsWrap: document.getElementById("merge-groups-wrap"),
   mergeGroups: document.getElementById("merge-groups"),
   btnMergeClose: document.getElementById("btn-merge-close"),
+
+  rolesOverlay: document.getElementById("roles-overlay"),
+  rolesOverlayBackdrop: document.getElementById("roles-overlay-backdrop"),
+  rolesList: document.getElementById("roles-list"),
+  btnRolesClose: document.getElementById("btn-roles-close"),
   simpleToastText: document.getElementById("simple-toast-text"),
 };
 
@@ -582,6 +590,10 @@ function closeSidebar() {
 el.btnSidebarOpen.addEventListener("click", openSidebar);
 el.btnSidebarClose.addEventListener("click", closeSidebar);
 el.sidebarBackdrop.addEventListener("click", closeSidebar);
+// セッション一覧にいるときは「セッション一覧に戻る」を出さない（2026-10-16、Mikoto要望）
+function updateGotoListButton() {
+  el.btnGotoList.hidden = state.view !== "session";
+}
 el.btnGotoList.addEventListener("click", async () => {
   await backToList();
   closeSidebar();
@@ -888,6 +900,116 @@ el.btnMergeConfirm.addEventListener("click", () => {
 });
 
 /* ============================================================
+ * KP・PL（地の文）の設定（5.3章、2026-10-16追加）
+ * KP・PLの発言は地の文、それ以外はキャラクター発言として表示を分ける
+ * （CClogのプレビュー用HTMLの見た目にならう）。
+ * 名前が「KP」「PL」の発言者は自動でKP・PLにし、それ以外もメニューから設定できる。
+ * ========================================================== */
+
+const ROLE_LABELS = { kp: "KP（地の文）", pl: "PL（地の文）", character: "キャラクター" };
+
+// 名前だけから決まる既定の役割（全角・大文字小文字の違いは無視）
+function autoSpeakerRole(name) {
+  const t = name.normalize("NFKC").trim().toUpperCase();
+  if (t === "KP") return "kp";
+  if (t === "PL") return "pl";
+  return "character";
+}
+
+// 代表の名前（統合後）に対する役割。手動設定があればそれを優先する
+function getSpeakerRole(name) {
+  return Object.prototype.hasOwnProperty.call(state.speakerRoles, name) ? state.speakerRoles[name] : autoSpeakerRole(name);
+}
+
+// ダイスロールの発言かどうか（CClogのdetectDiceRollと同じ判定）。
+// 新形式のログではロール結果をコマンド文と結合して本文にしているため、本文だけで判定できる。
+function isDiceRollText(text) {
+  return /\d+d\d+/i.test(text) && text.includes("＞");
+}
+
+async function saveSpeakerRoles() {
+  try {
+    await dbPutSetting(SETTING_SPEAKER_ROLES, state.speakerRoles);
+  } catch (e) {
+    showSimpleToast("KP・PLの設定の保存中にエラーが発生しました。");
+  }
+}
+
+// 外部ファイル由来の役割設定を検査する（kp/pl/character 以外は捨てる）
+function normalizeSpeakerRoles(obj) {
+  const out = {};
+  if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+    Object.keys(obj).forEach((k) => {
+      if (k && ["kp", "pl", "character"].includes(obj[k])) out[k] = obj[k];
+    });
+  }
+  return out;
+}
+
+async function setSpeakerRole(name, role) {
+  // 自動判定と同じになる場合は手動設定を消し、設定を最小限に保つ
+  if (role === autoSpeakerRole(name)) delete state.speakerRoles[name];
+  else state.speakerRoles[name] = role;
+  await saveSpeakerRoles();
+  if (state.view === "session") {
+    const session = state.sessions.find((s) => s.id === state.currentSessionId);
+    if (session) renderSessionMessageList(session);
+  }
+}
+
+function renderRolesModal() {
+  rebuildCharacterIndex();
+  el.rolesList.innerHTML = "";
+  sortedCharacterNames().forEach((name) => {
+    const entry = state.charIndex.get(name);
+    const row = document.createElement("div");
+    row.className = "merge-row";
+
+    const dot = document.createElement("span");
+    dot.className = "color-dot";
+    dot.style.background = entry.color;
+
+    const text = document.createElement("span");
+    text.className = "merge-row__text";
+    text.textContent = `${name}（${entry.count}）`;
+
+    const select = document.createElement("select");
+    select.className = "role-select";
+    ["character", "kp", "pl"].forEach((role) => {
+      const opt = document.createElement("option");
+      opt.value = role;
+      opt.textContent = ROLE_LABELS[role];
+      select.appendChild(opt);
+    });
+    select.value = getSpeakerRole(name);
+    select.addEventListener("change", () => setSpeakerRole(name, select.value));
+
+    row.appendChild(dot);
+    row.appendChild(text);
+    row.appendChild(select);
+    el.rolesList.appendChild(row);
+  });
+}
+
+function openRolesModal() {
+  rebuildCharacterIndex();
+  if (state.charIndex.size === 0) {
+    showSimpleToast("ログを読み込むとKP・PLを設定できます。");
+    return;
+  }
+  el.rolesOverlay.hidden = false;
+  renderRolesModal();
+}
+
+function closeRolesModal() {
+  el.rolesOverlay.hidden = true;
+}
+
+el.btnOpenRoles.addEventListener("click", openRolesModal);
+el.btnRolesClose.addEventListener("click", closeRolesModal);
+el.rolesOverlayBackdrop.addEventListener("click", closeRolesModal);
+
+/* ============================================================
  * 検索・絞り込み（5.4章）
  * ========================================================== */
 
@@ -1185,6 +1307,11 @@ function renderMessageTextWithHighlight(container, text, keyword) {
   container.appendChild(frag);
 }
 
+// 1発言の表示を、CClogのプレビュー用HTMLにならって3種類に分ける（2026-10-16、Mikoto要望）。
+// ・KP・PLの発言、およびダイスロールの発言（発言者を問わない）: 地の文（「名前：本文」の1行、KP・PLは左に色帯）
+// ・それ以外の発言者: キャラクター発言（色付きの名前の下に吹き出し）
+// ・発言者なし（システムメッセージ等）・infoタブ: 従来どおり
+// 統合したキャラクターは代表の名前・色で表示する（2026-10-16、Mikoto確認）。
 function renderSessionMessageList(session) {
   const kw = state.filter.keyword.trim();
   const chars = state.filter.characters;
@@ -1192,7 +1319,9 @@ function renderSessionMessageList(session) {
   el.sessionMessageList.innerHTML = "";
   session.messages.forEach((m, idx) => {
     const line = document.createElement("div");
-    line.className = "msg-line" + (m.category === "info" ? " msg-line--info" : "");
+    line.className = "msg-line";
+    if (m.category === "info") line.classList.add("msg-line--info");
+    if (m.category === "other") line.classList.add("msg-line--other");
     line.dataset.idx = String(idx);
 
     const speakerName = m.speaker ? canonicalName(m.speaker) : "";
@@ -1200,23 +1329,53 @@ function renderSessionMessageList(session) {
     const isKwHit = !!kw && m.text.toLowerCase().includes(kw.toLowerCase());
     if (isCharHit || isKwHit) line.classList.add("is-hit");
 
-    if (m.speaker) {
-      const sp = document.createElement("span");
-      sp.className = "msg-line__speaker";
-      // 統合したキャラクターは代表の名前・色で表示する（2026-10-16、Mikoto確認）
-      const charEntry = state.charIndex.get(speakerName);
-      sp.textContent = speakerName + "：";
-      sp.style.color = charEntry ? charEntry.color : m.color;
-      line.appendChild(sp);
-    }
-
     const textSpan = document.createElement("span");
     textSpan.className = "msg-line__text";
     renderMessageTextWithHighlight(textSpan, m.text, isKwHit ? kw : "");
-    line.appendChild(textSpan);
 
+    if (!m.speaker || m.category === "info") {
+      if (m.speaker) line.appendChild(buildSpeakerSpan(speakerName, m));
+      line.appendChild(textSpan);
+      el.sessionMessageList.appendChild(line);
+      return;
+    }
+
+    const role = getSpeakerRole(speakerName);
+    if (role === "character" && !isDiceRollText(m.text)) {
+      line.classList.add("msg-line--character");
+      const name = document.createElement("div");
+      name.className = "msg-line__bubble-name";
+      name.textContent = speakerName;
+      name.style.color = speakerColor(speakerName, m);
+      const bubble = document.createElement("div");
+      bubble.className = "msg-line__bubble";
+      bubble.appendChild(textSpan);
+      line.appendChild(name);
+      line.appendChild(bubble);
+    } else {
+      line.classList.add("msg-line--narration");
+      if (role === "kp") line.classList.add("msg-line--kp");
+      if (role === "pl") line.classList.add("msg-line--pl");
+      line.appendChild(buildSpeakerSpan(speakerName, m));
+      line.appendChild(textSpan);
+    }
     el.sessionMessageList.appendChild(line);
   });
+}
+
+function speakerColor(speakerName, m) {
+  const charEntry = state.charIndex.get(speakerName);
+  return charEntry ? charEntry.color : m.color;
+}
+
+// 「名前：」部分。KP・PLの色はCSS側（役割の色）で付けるため、それ以外の発言者だけ本人の色を付ける
+function buildSpeakerSpan(speakerName, m) {
+  const sp = document.createElement("span");
+  sp.className = "msg-line__speaker";
+  sp.textContent = speakerName + "：";
+  const role = getSpeakerRole(speakerName);
+  if (role !== "kp" && role !== "pl") sp.style.color = speakerColor(speakerName, m);
+  return sp;
 }
 
 function updateHitNav() {
@@ -1246,6 +1405,7 @@ async function openSession(id, opts = {}) {
 
   state.currentSessionId = id;
   state.view = "session";
+  updateGotoListButton();
   el.viewList.hidden = true;
   el.viewSession.hidden = false;
 
@@ -1292,6 +1452,7 @@ async function backToList() {
     await saveScrollPos(state.currentSessionId, window.scrollY);
   }
   state.view = "list";
+  updateGotoListButton();
   state.currentSessionId = null;
   el.viewSession.hidden = true;
   el.viewList.hidden = false;
@@ -1557,6 +1718,7 @@ function exportBackup() {
     exportedAt: new Date().toISOString(),
     sessions: state.sessions,
     characterAliases: state.aliases,
+    speakerRoles: state.speakerRoles,
   };
   const blob = new Blob([JSON.stringify(payload)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -1616,6 +1778,7 @@ function normalizeAliases(obj) {
 
 let pendingBackupData = null;
 let pendingBackupAliases = {};
+let pendingBackupRoles = {};
 
 el.backupFileInput.addEventListener("change", async (e) => {
   const file = e.target.files && e.target.files[0];
@@ -1627,6 +1790,7 @@ el.backupFileInput.addEventListener("change", async (e) => {
     if (!data || !Array.isArray(data.sessions)) throw new Error("invalid backup shape");
     pendingBackupData = normalizeBackupSessions(data.sessions);
     pendingBackupAliases = normalizeAliases(data.characterAliases);
+    pendingBackupRoles = normalizeSpeakerRoles(data.speakerRoles);
     el.backupModeDesc.textContent = `${pendingBackupData.length}件のセッションを含むバックアップです。読み込み方法を選んでください。`;
     el.backupModeOverlay.hidden = false;
   } catch (err) {
@@ -1663,10 +1827,13 @@ el.btnBackupRestore.addEventListener("click", async () => {
 
   state.sessions = restored;
   pendingBackupData = null;
-  // 復元（全置換）では、キャラクター統合設定もバックアップの内容に置き換える
+  // 復元（全置換）では、キャラクター統合設定・KP・PLの設定もバックアップの内容に置き換える
   state.aliases = pendingBackupAliases;
+  state.speakerRoles = pendingBackupRoles;
   pendingBackupAliases = {};
+  pendingBackupRoles = {};
   await saveAliases();
+  await saveSpeakerRoles();
   clearFilterState();
   await backToList();
   renderCharacterChecklist();
@@ -1691,13 +1858,17 @@ el.btnBackupMerge.addEventListener("click", () => {
     },
   }));
   const backupAliases = pendingBackupAliases;
+  const backupRoles = pendingBackupRoles;
   pendingBackupAliases = {};
+  pendingBackupRoles = {};
   pendingBackupData = null;
   openAssignModal(items, async (confirmedItems, decisions) => {
-    // 統合（マージ）では、キャラクター統合設定も足し合わせる（同じ名前の設定が食い違うときは今の設定を優先）。
+    // 統合（マージ）では、キャラクター統合設定・KP・PLの設定も足し合わせる（同じ名前の設定が食い違うときは今の設定を優先）。
     // 取り込みを確定したときだけ反映し、キャンセルしたときは今の設定のままにする。
     state.aliases = normalizeAliases({ ...backupAliases, ...state.aliases });
+    state.speakerRoles = { ...backupRoles, ...state.speakerRoles };
     await saveAliases();
+    await saveSpeakerRoles();
     await applyImportDecisions(confirmedItems, decisions);
   });
 });
@@ -1716,8 +1887,10 @@ function isIOSLike() {
 
 async function init() {
   if (isIOSLike()) el.folderPickerArea.hidden = true;
+  updateGotoListButton();
   try {
     state.aliases = normalizeAliases(await dbGetSetting(SETTING_ALIASES));
+    state.speakerRoles = normalizeSpeakerRoles(await dbGetSetting(SETTING_SPEAKER_ROLES));
   } catch (e) {
     state.aliases = {};
   }
