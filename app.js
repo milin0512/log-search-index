@@ -1369,16 +1369,9 @@ el.btnBackupMerge.addEventListener("click", () => {
  * 初期化
  * ========================================================== */
 
-// iPhone/iPadのSafariはフォルダ選択（webkitdirectory）に対応していないため、
-// フォルダ読み込みボタンは出さず「ファイルを選ぶ」（ファイルアプリでの複数選択）だけにする。
-// iPadOSはMacと同じUAを名乗るので、タッチ点数でも判定する。
-function isIOSLike() {
-  const ua = navigator.userAgent || "";
-  return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
-}
-
 async function init() {
-  if (isIOSLike() || !("webkitdirectory" in el.folderInput)) el.folderPickerArea.hidden = true;
+  // 「フォルダを選ぶ」はiPhone/iPadでも表示する（2026-10-16、Mikoto要望）。
+  // フォルダ選択（webkitdirectory）に対応していない環境では、通常のファイル選択として動く。
   try {
     state.sessions = (await dbGetAllSessions()).sort((a, b) => a.order - b.order);
   } catch (e) {
