@@ -4,8 +4,8 @@
   --color-border: #dcdfe4;
   --color-text: #222831;
   --color-text-sub: #6b7280;
-  --color-primary: #2563eb;
-  --color-primary-dark: #1d4ed8;
+  --color-primary: #db2777;
+  --color-primary-dark: #be185d;
   --color-danger: #dc2626;
   --color-danger-bg: #fee2e2;
   --radius: 10px;
@@ -305,7 +305,7 @@ main {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: #eef2ff;
+  background: #fdf2f8;
   border: 1px solid var(--color-primary);
   border-radius: 8px;
   padding: 6px 10px;
@@ -470,7 +470,7 @@ main {
   .msg-line.is-hit { background: #3a3312; }
   .msg-line.is-hit-current { background: #52440f; }
   .search-mark { background: #7a6210; color: #fff; }
-  .hit-nav { background: #1e2540; }
+  .hit-nav { background: #3b1a2c; }
   .reorder-note { background: #3a2f10; color: #f2c879; }
   .session-row__hit-badge { color: #fff; }
   .toast { background: #1f2229; }
@@ -510,4 +510,14 @@ main {
   .sidebar-backdrop { display: none !important; }
   .app-header__menu-btn { display: none !important; }
   #btn-sidebar-close { display: none !important; }
+}
+
+/* 個別セッション閲覧画面の最下部の前へ／次へ */
+.session-view__footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
 }

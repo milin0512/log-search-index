@@ -477,6 +477,8 @@ const el = {
   sessionViewTitle: document.getElementById("session-view-title"),
   sessionViewMeta: document.getElementById("session-view-meta"),
   btnNextSession: document.getElementById("btn-next-session"),
+  btnPrevSessionBottom: document.getElementById("btn-prev-session-bottom"),
+  btnNextSessionBottom: document.getElementById("btn-next-session-bottom"),
   hitNav: document.getElementById("hit-nav"),
   hitNavLabel: document.getElementById("hit-nav-label"),
   btnHitPrev: document.getElementById("btn-hit-prev"),
@@ -563,7 +565,10 @@ function renderCharacterChecklist() {
       }
     })
   );
-  const names = Array.from(counts.keys()).sort((a, b) => a.localeCompare(b, "ja"));
+  // 発言数の多い順（同数なら名前順）に並べる（2026-10-16、Mikoto要望）
+  const names = Array.from(counts.keys()).sort(
+    (a, b) => counts.get(b) - counts.get(a) || a.localeCompare(b, "ja")
+  );
 
   el.characterChecklist.innerHTML = "";
   if (names.length === 0) {
@@ -961,6 +966,8 @@ async function openSession(id, opts = {}) {
   el.sessionViewMeta.textContent = `${session.date || "日付不明"}・${idx + 1} / ${state.sessions.length}`;
   el.btnPrevSession.disabled = idx <= 0;
   el.btnNextSession.disabled = idx < 0 || idx >= state.sessions.length - 1;
+  el.btnPrevSessionBottom.disabled = el.btnPrevSession.disabled;
+  el.btnNextSessionBottom.disabled = el.btnNextSession.disabled;
 
   renderSessionMessageList(session);
   updateHitNav();
@@ -977,14 +984,19 @@ async function openSession(id, opts = {}) {
   }
 }
 
-el.btnPrevSession.addEventListener("click", () => {
+function gotoPrevSession() {
   const idx = state.sessions.findIndex((s) => s.id === state.currentSessionId);
   if (idx > 0) openSession(state.sessions[idx - 1].id, {});
-});
-el.btnNextSession.addEventListener("click", () => {
+}
+function gotoNextSession() {
   const idx = state.sessions.findIndex((s) => s.id === state.currentSessionId);
   if (idx >= 0 && idx < state.sessions.length - 1) openSession(state.sessions[idx + 1].id, {});
-});
+}
+// 長いログを読み終えたときにページ先頭へ戻らなくて済むよう、最下部にも同じボタンを置く
+el.btnPrevSession.addEventListener("click", gotoPrevSession);
+el.btnNextSession.addEventListener("click", gotoNextSession);
+el.btnPrevSessionBottom.addEventListener("click", gotoPrevSession);
+el.btnNextSessionBottom.addEventListener("click", gotoNextSession);
 
 async function backToList() {
   if (state.currentSessionId && state.view === "session") {
