@@ -503,6 +503,9 @@ const el = {
   filterSummary: document.getElementById("filter-summary"),
 
   btnToggleReorder: document.getElementById("btn-toggle-reorder"),
+  sidebarReorderSection: document.getElementById("sidebar-reorder-section"),
+  reorderBar: document.getElementById("reorder-bar"),
+  btnReorderDone: document.getElementById("btn-reorder-done"),
 
   btnBackupExport: document.getElementById("btn-backup-export"),
   backupFileInput: document.getElementById("backup-file-input"),
@@ -1226,41 +1229,73 @@ async function handleDeleteSession(id) {
 
 let dragState = null;
 
+// ハンドルをつかんだまま画面の上端・下端に近づけたら、その方向へ自動でスクロールする（2026-10-17、Mikoto要望）。
+// 指を止めていても pointermove は来ないため、約60回/秒のタイマーで最後の指の位置を見る。
+const AUTO_SCROLL_EDGE = 80; // 画面端からこの距離（px）に入ったらスクロールを始める
+const AUTO_SCROLL_MAX_SPEED = 18; // 1回（約16ms）あたりの最大スクロール量（px）。端に近いほど速くする
+
 function onHandlePointerDown(e, sessionId) {
   if (!state.reorderMode) return;
   e.preventDefault();
   const row = e.currentTarget.closest(".session-row");
   if (!row) return;
-  dragState = { row, sessionId };
+  dragState = { row, sessionId, lastY: e.clientY, timerId: null };
   row.classList.add("is-dragging");
   document.addEventListener("pointermove", onDragPointerMove);
   document.addEventListener("pointerup", onDragPointerUp);
   document.addEventListener("pointercancel", onDragPointerUp);
+  dragState.timerId = setInterval(autoScrollStep, 16);
 }
 
-function onDragPointerMove(e) {
-  if (!dragState) return;
-  e.preventDefault();
+// 指の位置（clientY）に合わせて、つかんでいる行を並びの中へ差し込む
+function placeDraggedRow(clientY) {
   const { row } = dragState;
   const siblings = Array.from(el.sessionList.querySelectorAll(".session-row")).filter((r) => r !== row);
   let inserted = false;
   for (const sib of siblings) {
     const rect = sib.getBoundingClientRect();
-    if (e.clientY < rect.top + rect.height / 2) {
-      el.sessionList.insertBefore(row, sib);
+    if (clientY < rect.top + rect.height / 2) {
+      if (row.nextSibling !== sib) el.sessionList.insertBefore(row, sib);
       inserted = true;
       break;
     }
   }
   if (!inserted && siblings.length > 0) {
     const last = siblings[siblings.length - 1];
-    el.sessionList.insertBefore(row, last.nextSibling);
+    if (last.nextSibling !== row) el.sessionList.insertBefore(row, last.nextSibling);
+  }
+}
+
+function onDragPointerMove(e) {
+  if (!dragState) return;
+  e.preventDefault();
+  dragState.lastY = e.clientY;
+  placeDraggedRow(e.clientY);
+}
+
+function autoScrollStep() {
+  if (!dragState) return;
+  const y = dragState.lastY;
+  // 画面最下部の「並び替えモードを終了する」バーに隠れる部分は除き、バーの上端を下端とみなす
+  const bottom = el.reorderBar.hidden ? window.innerHeight : el.reorderBar.getBoundingClientRect().top;
+  let dy = 0;
+  if (y < AUTO_SCROLL_EDGE) {
+    dy = -Math.ceil(((AUTO_SCROLL_EDGE - y) / AUTO_SCROLL_EDGE) * AUTO_SCROLL_MAX_SPEED);
+  } else if (y > bottom - AUTO_SCROLL_EDGE) {
+    dy = Math.ceil(Math.min(1, (y - (bottom - AUTO_SCROLL_EDGE)) / AUTO_SCROLL_EDGE) * AUTO_SCROLL_MAX_SPEED);
+  }
+  if (dy !== 0) {
+    const before = window.scrollY;
+    window.scrollBy(0, dy);
+    // スクロールで行の位置がずれるので、同じ指の位置で差し込み先を計算し直す
+    if (window.scrollY !== before) placeDraggedRow(y);
   }
 }
 
 async function onDragPointerUp() {
   if (!dragState) return;
-  const { row } = dragState;
+  const { row, timerId } = dragState;
+  if (timerId) clearInterval(timerId);
   row.classList.remove("is-dragging");
   document.removeEventListener("pointermove", onDragPointerMove);
   document.removeEventListener("pointerup", onDragPointerUp);
@@ -1281,16 +1316,29 @@ async function onDragPointerUp() {
   await touchCurrentSection();
 }
 
-el.btnToggleReorder.addEventListener("click", async () => {
-  state.reorderMode = !state.reorderMode;
-  if (state.reorderMode) {
+// 並び替えモードの開始・終了。モード中はサイドメニューの「並べ替え」欄を隠し、
+// 画面最下部の「並び替えモードを終了する」バーで終了する（2026-10-17、Mikoto要望）。
+function setReorderMode(on) {
+  state.reorderMode = on;
+  if (on) {
     clearFilterState();
     renderCharacterChecklist();
   }
-  el.btnToggleReorder.textContent = state.reorderMode ? "並び替えモードを終了する" : "並び替えモードに切り替える";
-  el.reorderNote.hidden = !state.reorderMode;
+  el.sidebarReorderSection.hidden = on;
+  el.reorderBar.hidden = !on;
+  el.reorderNote.hidden = !on;
+  document.body.classList.toggle("is-reorder-mode", on);
+}
+
+el.btnToggleReorder.addEventListener("click", async () => {
+  setReorderMode(true);
   await backToList();
   closeSidebar();
+});
+
+el.btnReorderDone.addEventListener("click", () => {
+  setReorderMode(false);
+  renderSessionList();
 });
 
 /* ============================================================
@@ -2093,11 +2141,7 @@ async function switchSection(id, { toList = false } = {}) {
   splitSessionsBySection(all);
   await saveSections();
 
-  if (state.reorderMode) {
-    state.reorderMode = false;
-    el.btnToggleReorder.textContent = "並び替えモードに切り替える";
-    el.reorderNote.hidden = true;
-  }
+  if (state.reorderMode) setReorderMode(false);
   clearFilterState();
   renderCharacterChecklist();
   renderSectionUi();

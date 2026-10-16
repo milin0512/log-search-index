@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'" />
+<title>ログ検索インデックス 取扱説明書</title>
+<style>
+:root {
+  --color-bg: #f4f5f7;
+  --color-surface: #ffffff;
+  --color-border: #dcdfe4;
+  --color-text: #222831;
+  --color-text-sub: #6b7280;
+  --color-primary: #db2777;
+  --color-code-bg: #eef0f3;
+  --radius: 10px;
+  font-size: 17px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #16181d;
+    --color-surface: #1f2229;
+    --color-border: #33363d;
+    --color-text: #e7e9ee;
+    --color-text-sub: #9aa0aa;
+    --color-primary: #f472b6;
+    --color-code-bg: #2a2d35;
+  }
+  .app-header { background: #9d174d; }
+  .open-tool { background: #be185d; }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", sans-serif;
+  line-height: 1.75;
+  -webkit-text-size-adjust: 100%;
+}
+.app-header { background: #db2777; color: #fff; padding: 20px 16px; }
+.app-header__inner { max-width: 760px; margin: 0 auto; }
+.app-header h1 { margin: 0; font-size: 1.3rem; line-height: 1.4; }
+.app-header p { margin: 6px 0 0; font-size: 0.9rem; opacity: 0.9; }
+main { max-width: 760px; margin: 0 auto; padding: 16px 16px 60px; }
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+.open-tool {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 48px; margin-top: 12px; padding: 10px 16px;
+  border-radius: var(--radius); background: #db2777; color: #fff;
+  font-weight: 600; text-decoration: none;
+}
+.toc h2, .sec h2 { margin: 0 0 8px; font-size: 1.1rem; }
+.toc ol { margin: 0; padding-left: 1.4em; }
+.toc li { margin: 2px 0; }
+.sec { scroll-margin-top: 12px; }
+.sec h2 { padding-bottom: 6px; border-bottom: 2px solid var(--color-border); margin-bottom: 10px; }
+ul { margin: 0; padding-left: 1.3em; }
+li { margin: 6px 0; }
+li li { margin: 4px 0; font-size: 0.96em; }
+p { margin: 0 0 8px; }
+a { color: var(--color-primary); word-break: break-all; }
+strong { background: linear-gradient(transparent 62%, rgba(244, 114, 182, 0.35) 62%); }
+.to-top { display: block; text-align: right; font-size: 0.85rem; margin-top: 10px; }
+footer { text-align: center; color: var(--color-text-sub); font-size: 0.82rem; }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="app-header__inner">
+    <h1>ログ検索インデックス 取扱説明書</h1>
+    <p>最終更新: 2026-10-17</p>
+  </div>
+</header>
+
+<main id="top">
+  <div class="card">
+    <ul><li>過去のTRPGセッションのログ(ココフォリアの書き出しHTML、CClogのプレビュー用HTML)をまとめて取り込み、セッションをまたいでキーワード検索・キャラクターでの絞り込み・閲覧ができる</li><li>ログの保管庫ではなく、NotionやGoogleドライブに置いてあるログを横断検索するための「索引(インデックス)」という位置づけ。元のログファイルは書き換えない</li><li>読み込んだログの内容はすべて端末内で処理される。どこかのサーバーに送信されることはない</li></ul>
+    <a class="open-tool" href="./">ツールを開く</a>
+  </div>
+
+  <nav class="card toc" aria-label="目次">
+    <h2>目次</h2>
+    <ol><li><a href="#sec-1">基本の流れ</a></li><li><a href="#sec-2">サイドメニュー</a></li><li><a href="#sec-3">ログを読み込む</a></li><li><a href="#sec-4">セクション</a></li><li><a href="#sec-5">セッション一覧</a></li><li><a href="#sec-6">並べ替え</a></li><li><a href="#sec-7">個別セッションの閲覧</a></li><li><a href="#sec-8">発言の表示のされ方</a></li><li><a href="#sec-9">KP・PL(地の文)の設定</a></li><li><a href="#sec-10">キャラクターの統合</a></li><li><a href="#sec-11">検索・絞り込み</a></li><li><a href="#sec-12">バックアップ</a></li><li><a href="#sec-13">対応環境・注意点</a></li><li><a href="#sec-14">うまくいかないときは</a></li></ol>
+  </nav>
+
+  <section class="card sec" id="sec-1"><h2>基本の流れ</h2><ul><li>①ココフォリアの書き出しHTML、またはCClogのプレビュー用HTMLを用意する</li><li>②サイドメニューの「ファイルを選ぶ(複数可)」(PCなら「フォルダを選ぶ」も可)でログを読み込む</li><li>③セッション一覧から読みたいセッションを開く。「前へ」「次へ」で隣のセッションへ移動できる</li><li>④サイドメニューの「検索・絞り込み」で、キーワードやキャラクターから目的の場面を探す</li><li>⑤取り込みが終わったら、案内に従ってバックアップを書き出しておく(下記＜バックアップ＞参照)</li></ul><a class="to-top" href="#top">↑ 目次へ</a></section>
+<section class="card sec" id="sec-2"><h2>サイドメニュー</h2><ul><li>画面右上の「☰」を押すと開く。画面幅900px以上(PCやiPadの横向きなど)では左側に常に表示される</li><li>上から順に「セッション一覧に戻る」(個別セッションを閲覧しているときだけ表示)、「セクション」、「ログの読み込み」、「並べ替え」、「検索・絞り込み」、「バックアップ」、「取扱説明書を開く」が並ぶ</li><li>絞り込み中は「☰」に印が付く</li></ul><a class="to-top" href="#top">↑ 目次へ</a></section>
+<section class="card sec" id="sec-3"><h2>ログを読み込む</h2><ul><li>読み込めるのは次の3種類。どれかを選ぶ操作は不要で、自動で判別する<ul><li>ココフォリアの書き出しHTML(新しい形式)</li><li>ココフォリアの書き出しHTML(以前の形式)</li><li>CClogが書き出したプレビュー用HTML</li></ul></li><li>「ファイルを選ぶ(複数可)」: ログのHTMLを1つ以上選んで読み込む</li><li>「フォルダを選ぶ」(PCのみ): Googleドライブ for デスクトップで同期しているログフォルダなどを、丸ごと読み込める。iPhone・iPadでは使えないためボタンは表示されない</li><li><strong>すでに取り込んであるログと同じファイル名のものは、内容が変わっていれば自動で最新版に差し替え、変わっていなければ何もしない。</strong>差し替えても一覧の並び順は変わらない</li><li>同じファイル名のものがない新しいログの扱い<ul><li>フォルダから読み込んだ場合: 新規として自動で追加される</li><li>ファイルを選んで読み込んだ場合: 「読み込んだログの扱いを選ぶ」画面が出る。新しいログなら「新規として追加」、ファイル名を変えて保存し直した更新版なら、置き換えたい既存のセッションを選ぶ</li></ul></li><li>読み込み結果(新規追加・差し替え・変更なしの件数、読み取れなかったファイル)は、ボタンの下に表示される</li><li>ファイル名から、シナリオ名と日付を自動で拾う。日付がファイル名にないココフォリアの新しい形式のログは、ログの最初の発言の日時をセッション日付にする</li><li>取り込みは、表示中のセクションに対して行われる(下記＜セクション＞参照)</li></ul><a class="to-top" href="#top">↑ 目次へ</a></section>
+<section class="card sec" id="sec-4"><h2>セクション</h2><ul><li>セクションは、セッション一覧を丸ごと分ける「別々の本棚」。たとえば「キャンペーンA」と「単発シナリオ」のように分けておける</li><li><strong>一覧・検索・絞り込み・前へ/次への移動は、表示中のセクションの中だけで行われる。</strong>同じファイル名の自動差し替えも、表示中のセクションの中だけで判定される</li><li>「新しいセクションを作る」: 名前を入力して新しいセクションを作り、そのセクションに切り替わる(名前を空欄にすると「セクション2」のような名前になる)</li><li>「セクション履歴(編集が新しい順)」: すべてのセクションが、最後に編集した順に並ぶ。行を押すと、そのセクションに切り替わる。表示中のセクションには「(表示中)」が付き、ピンクの枠で囲まれる<ul><li>ここでいう「編集」は、ログの追加・差し替え・削除・並べ替えのこと。セクションを切り替えたり、ログを読んだりしただけでは並び順は変わらない</li><li>各行に、セッションの件数と最終編集日時が表示される</li></ul></li><li><strong>別のセクションへ移るとき、個別セッションを読んでいた場合はその場所を覚えておき、戻ってきたときに同じセッションの同じ位置から再開する。</strong>一覧画面にいた場合は一覧に戻る</li><li>セクションを切り替えると、検索・絞り込みと並び替えモードは解除される</li><li>「名前を変更」: そのセクションの名前を変える</li><li>「削除」: そのセクションを、中のセッションごとインデックスから削除する(確認ダイアログあり、元に戻せない)。セクションが1つしかないときは削除できない</li><li>キャラクターの統合・KP/PLの設定は、すべてのセクションで共通</li><li>セクション機能ができる前に取り込んでいたログは、すべて「セクション1」に入っている</li></ul><a class="to-top" href="#top">↑ 目次へ</a></section>
+<section class="card sec" id="sec-5"><h2>セッション一覧</h2><ul><li>表示中のセクションのセッションが、上から順に並ぶ。各行にシナリオ名・日付(拾えなかった場合は「日付不明」)・発言件数が表示される</li><li>一覧の上に、表示中のセクション名が表示される</li><li>行を押すと、そのセッションの個別閲覧画面に移る</li><li>「削除」で、そのセッションをインデックスから削除できる(確認ダイアログあり)。元のログファイルは消えない</li><li>並び順の初期配置: 日付が拾えたログは日付順に、拾えなかったログは取り込んだ順に末尾へ並ぶ。並び順は手動で変えられる(下記＜並べ替え＞参照)</li></ul><a class="to-top" href="#top">↑ 目次へ</a></section>
+<section class="card sec" id="sec-6"><h2>並べ替え</h2><ul><li>サイドメニューの「並び替えモードに切り替える」を押すと、並び替えモードになる。誤タップを防ぐため、このモードのときだけ並べ替えができる</li><li>各行の左に出るハンドル(≡)をつかんで上下にドラッグすると、順番を変えられる。指を離したときの並びが保存される</li><li><strong>ハンドルをつかんだまま画面の上端・下端の近くまで持っていくと、つかんだまま画面がスクロールする。</strong>端に近いほど速くスクロールする。画面に収まらない離れた位置へも、そのまま運べる</li><li><strong>並び替えモードを終えるときは、画面最下部の「並び替えモードを終了する」を押す。</strong>並び替えモード中は、サイドメニューの「並べ替え」欄は表示されない</li><li>並び替えモードに切り替えると、検索・絞り込みは解除される</li></ul><a class="to-top" href="#top">↑ 目次へ</a></section>
+<section class="card sec" id="sec-7"><h2>個別セッションの閲覧</h2><ul><li>画面の上部と最下部に「前へ」「次へ」ボタンがあり、一覧に戻らずに隣のセッションへ移動できる(長いログを読み終えたとき、先頭へ戻らずに次へ進める)</li><li>タイトルの下に、日付と「何番目/全何件」が表示される</li><li><strong>セッションごとに読んでいた位置を覚えていて、別のセッションへ移ってから戻ってきても、同じ位置から再開できる</strong></li><li>一覧に戻るときは、サイドメニューの「セッション一覧に戻る」を押す</li></ul><a class="to-top" href="#top">↑ 目次へ</a></section>
+<section class="card sec" id="sec-8"><h2>発言の表示のされ方</h2><ul><li><strong>KP・PLの発言</strong>: 地の文として「名前：本文」の1行で表示し、左に色の帯が付く(KPは青、PLは茶色)</li><li><strong>ダイスロールの発言</strong>: 発言者にかかわらず、地の文の見た目で表示する(本文に「1D100」のような「数字D数字」と「＞」が含まれるものをダイスロールとみなす)</li><li><strong>キャラクターの発言</strong>: 色付きの名前の下に、吹き出しで本文を表示する</li><li><strong>システムメッセージ</strong>(SAN値やHPの変化の通知など、発言者のいないもの): 枠で囲んだ、灰色の小さめの文字で表示する。発言者名は出さない</li><li>infoタブの発言は、少し字下げした枠で表示する。otherタブの発言は、全体を灰色で表示する</li></ul><a class="to-top" href="#top">↑ 目次へ</a></section>
+<section class="card sec" id="sec-9"><h2>KP・PL(地の文)の設定</h2><ul><li>名前が「KP」「PL」の発言者(全角・半角、大文字・小文字の違いは無視)は、最初からKP・PLとして地の文で表示される</li><li>それ以外の発言者をKP・PLとして扱いたいときは、サイドメニューの「KP・PL(地の文)を設定する」を押し、発言者ごとに「KP(地の文)」「PL(地の文)」「キャラクター」を選ぶ。選ぶとすぐ表示に反映される</li></ul><a class="to-top" href="#top">↑ 目次へ</a></section>
+<section class="card sec" id="sec-10"><h2>キャラクターの統合</h2><ul><li>同じ名前で、色なしと色ありの発言が混ざっている発言者は、自動で色ありの方にそろえて1人として扱う</li><li>サイドメニューの「キャラクターを統合・解除する」から、選んだ2人以上の発言者を1人のキャラクターにまとめられる(例: 「立花 果凛」と「立花　果凛」)<ul><li>「代表の名前」で、まとめたあとに使う名前を選ぶ(最初は発言数が一番多い名前)</li><li>まとめたキャラクターは、絞り込みでは1人として扱われ、ログの表示も代表の名前と色になる。元のログファイルは書き換えない</li><li>「統合済み」の一覧から、まとめたものを解除できる</li></ul></li><li>「統合候補(表記ゆれ)」: スペースの有無・全角半角・末尾の読み仮名(「立花 果凛（たちばな かりん）」のような括弧書き)だけが違う名前が提案される。自動ではまとめないので、「選ぶ」を押してから「統合する」を押す</li></ul><a class="to-top" href="#top">↑ 目次へ</a></section>
+<section class="card sec" id="sec-11"><h2>検索・絞り込み</h2><ul><li>「キーワード検索」に言葉を入れる、または「キャラクターで絞り込む」で発言者にチェックを入れてから、「検索・絞り込みを実行」を押す<ul><li>キャラクターは複数選べる。複数選んだときは、選んだうちの誰かの発言が対象になる(OR)</li><li>キーワードとキャラクターを両方指定すると、「選んだキャラクターの発言のうち、キーワードを含むもの」が対象になる</li><li>キーワードは英字の大文字・小文字を区別しない</li><li>キャラクターの一覧は、表示中のセクションの中で発言数が多い順に並ぶ</li></ul></li><li>実行すると、最初に一致した発言の場所へ移動する。一致した発言は黄色の背景、キーワードは濃い黄色で強調される</li><li>セッションのタイトルの下に出る「○ / ○ 件」のバーの「◀」「▶」で、前後の一致箇所へ移動できる(別のセッションの一致箇所へもそのまま移る)。「×」で絞り込みを閉じる</li><li>一覧画面では、一致した発言のあるセッションだけが表示され、各行に一致件数が出る</li><li>「絞り込みを解除」で元に戻る。サイドメニューに今の絞り込み条件とヒット件数が表示される</li><li>検索の対象は、表示中のセクションのセッションだけ</li></ul><a class="to-top" href="#top">↑ 目次へ</a></section>
+<section class="card sec" id="sec-12"><h2>バックアップ</h2><ul><li><strong>このツールのデータは、ブラウザの中に保存されている。ブラウザのデータを消したときや、iPhone・iPadのSafariで長いあいだ開かなかったときなどに消えることがあるので、バックアップを書き出しておく</strong></li><li>ログを取り込んだり差し替えたりすると、「バックアップを書き出しますか?」という案内が出る。「書き出す」でバックアップファイル(.json)が保存される</li><li>サイドメニューの「インデックス全体を書き出す」でも、いつでも書き出せる。<strong>書き出しは、すべてのセクションをまとめて1つのファイルに保存する</strong>(キャラクターの統合・KP/PLの設定も含む)</li><li>「バックアップファイルを読み込む」で読み込むと、読み込み方法を選ぶ画面が出る<ul><li><strong>復元(全置換)</strong>: 今のインデックスをすべて、バックアップの内容に置き換える。セクションの構成も元に戻る(確認ダイアログあり、元に戻せない)。セクション機能ができる前のバックアップは、1つのセクションにまとめて復元される</li><li><strong>統合(マージ)</strong>: バックアップの中のセッションを、表示中のセクションに1件ずつ追加・差し替えする。「新規として追加」か、置き換えたい既存のセッションを選ぶ。複数のバックアップを1つにまとめたいときに使う</li></ul></li></ul><a class="to-top" href="#top">↑ 目次へ</a></section>
+<section class="card sec" id="sec-13"><h2>対応環境・注意点</h2><ul><li>対応ブラウザ: iPhone・iPadのSafari、およびPCの一般的なブラウザ(Chrome・Edgeなど)</li><li>画面幅900px以上ではサイドメニューが常に表示される2カラムの画面になる。それ未満は右上の「☰」からサイドメニューを開く</li><li>通信は発生しない: 読み込んだログの内容は端末内でのみ処理され、外部のサーバーに送信されることはない</li><li>ダークモード: 端末の設定がダークモードの場合、自動で配色が切り替わる</li><li>データは端末(ブラウザ)ごとに別々に保存される。PCで取り込んだログをiPhoneでも見たいときは、PCで書き出したバックアップをiPhoneで読み込む</li></ul><a class="to-top" href="#top">↑ 目次へ</a></section>
+<section class="card sec" id="sec-14"><h2>うまくいかないときは</h2><ul><li>ファイルを選んでもセッションが増えない → 読み込み結果の表示を確認する。「ログとして認識できませんでした」と出たファイルは、対応している3種類のログ以外のHTML</li><li>「変更なし」と表示されて差し替わらない → 同じファイル名で内容も同じ。内容が変わっていれば自動で差し替わる</li><li>別のセクションに取り込んだはずのログが見当たらない → サイドメニューの「セクション履歴」で、取り込んだセクションに切り替える</li><li>検索しても見つからない → 検索の対象は表示中のセクションだけ。別のセクションに切り替えてから検索する</li><li>並べ替えのハンドル(≡)が出ない → 並び替えモードになっていない。サイドメニューの「並び替えモードに切り替える」を押す</li><li>サイドメニューに「並べ替え」欄がない → 並び替えモード中は表示されない。画面最下部の「並び替えモードを終了する」を押す</li><li>iPhone・iPadに「フォルダを選ぶ」がない → iPhone・iPadのSafariではフォルダ選択が使えないため、表示していない。「ファイルを選ぶ(複数可)」で複数のファイルをまとめて選ぶ</li><li>取り込んだログが消えた → ブラウザのデータが消えた可能性がある。書き出しておいたバックアップを「復元(全置換)」で読み込む</li><li>ツールを更新したはずなのに古い画面のまま → ブラウザが古いファイルを覚えている可能性がある。ページを再読み込みする(iPhone・iPadのSafariでは、一度タブを閉じて開き直す)</li></ul><a class="to-top" href="#top">↑ 目次へ</a></section>
+
+  <footer>ログ検索インデックス</footer>
+</main>
+
+</body>
+</html>

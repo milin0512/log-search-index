@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'" />
 <title>ログ検索インデックス</title>
-<link rel="stylesheet" href="style.css?v=8" />
+<link rel="stylesheet" href="style.css?v=9" />
 </head>
 <body>
 
@@ -46,15 +46,15 @@
         <input type="file" id="folder-input" webkitdirectory multiple hidden />
         <p class="sidebar__section-desc">Googleドライブ（PCの同期フォルダ）のログフォルダを丸ごと読み込めます。</p>
       </div>
-      <label class="btn btn--secondary btn--block" for="file-input">ファイルを選ぶ（複数可）</label>
+      <label class="btn btn--primary btn--block" for="file-input">ファイルを選ぶ（複数可）</label>
       <input type="file" id="file-input" accept=".html,text/html" multiple hidden />
       <p class="load-status" id="load-status"></p>
     </div>
 
-    <div class="sidebar__section">
+    <div class="sidebar__section" id="sidebar-reorder-section">
       <h3 class="sidebar__section-title">並べ替え</h3>
       <button type="button" class="btn btn--secondary btn--block" id="btn-toggle-reorder">並び替えモードに切り替える</button>
-      <p class="sidebar__section-desc">一覧画面でセッションをドラッグして順番を変更できます（誤タップ防止のため、このモード中のみ有効です）。</p>
+      <p class="sidebar__section-desc">一覧画面でセッションをドラッグして順番を変更できます（誤タップ防止のため、このモード中のみ有効です）。終了するときは画面最下部の「並び替えモードを終了する」を押します。</p>
     </div>
 
     <div class="sidebar__section">
@@ -83,6 +83,10 @@
       <input type="file" id="backup-file-input" accept=".json,application/json" hidden />
       <p class="sidebar__section-desc">書き出しは全セクションをまとめて保存します。読み込み時に「復元（全置換・セクション構成ごと）」または「統合（マージ・表示中のセクションへ）」を選べます。</p>
     </div>
+
+    <div class="sidebar__section">
+      <a class="btn btn--secondary btn--block" href="manual.html" target="_blank" rel="noopener">📖 取扱説明書を開く</a>
+    </div>
   </aside>
 
   <main>
@@ -92,7 +96,7 @@
       <h2 class="panel__title">セッション一覧</h2>
       <p class="list-section-label" id="list-section-label"></p>
       <p class="panel__desc" id="list-empty-note">まだログが読み込まれていません。メニューの「ファイルを選ぶ」から読み込んでください。</p>
-      <p class="reorder-note" id="reorder-note" hidden>並び替えモード中です。ハンドル（≡）をドラッグして順番を変更できます。</p>
+      <p class="reorder-note" id="reorder-note" hidden>並び替えモード中です。ハンドル（≡）をドラッグして順番を変更できます。画面の上端・下端まで持っていくと、つかんだまま画面がスクロールします。</p>
       <div class="session-list" id="session-list"></div>
     </section>
 
@@ -124,6 +128,11 @@
 
   </main>
 
+</div>
+
+<!-- 並び替えモード終了バー（並び替えモード中だけ画面最下部に表示） -->
+<div class="reorder-bar" id="reorder-bar" hidden>
+  <button type="button" class="btn btn--primary btn--block" id="btn-reorder-done">並び替えモードを終了する</button>
 </div>
 
 <!-- 差し替え識別モーダル（読み込み・バックアップ統合の両方で使用） -->
@@ -213,6 +222,6 @@
   <p id="simple-toast-text"></p>
 </div>
 
-<script src="app.js?v=8"></script>
+<script src="app.js?v=9"></script>
 </body>
 </html>
