@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; base-uri 'none'; form-action 'none'" />
 <title>ログ検索インデックス</title>
-<link rel="stylesheet" href="style.css?v=7" />
+<link rel="stylesheet" href="style.css?v=8" />
 </head>
 <body>
 
@@ -28,6 +28,15 @@
     </div>
 
     <button type="button" class="btn btn--primary btn--block" id="btn-goto-list">セッション一覧に戻る</button>
+
+    <div class="sidebar__section">
+      <h3 class="sidebar__section-title">セクション</h3>
+      <p class="section-current">表示中：<strong id="current-section-name"></strong></p>
+      <button type="button" class="btn btn--primary btn--block" id="btn-new-section">新しいセクションを作る</button>
+      <h4 class="section-history__title">セクション履歴（編集が新しい順）</h4>
+      <div class="section-history" id="section-history"></div>
+      <p class="sidebar__section-desc">セクションごとにセッション一覧・検索の対象が分かれます。キャラクターの統合・KP・PLの設定は全セクション共通です。</p>
+    </div>
 
     <div class="sidebar__section">
       <h3 class="sidebar__section-title">ログの読み込み</h3>
@@ -72,7 +81,7 @@
       <button type="button" class="btn btn--secondary btn--block" id="btn-backup-export">インデックス全体を書き出す</button>
       <label class="btn btn--secondary btn--block" for="backup-file-input">バックアップファイルを読み込む</label>
       <input type="file" id="backup-file-input" accept=".json,application/json" hidden />
-      <p class="sidebar__section-desc">読み込み時に「復元（全置換）」または「統合（マージ）」を選べます。</p>
+      <p class="sidebar__section-desc">書き出しは全セクションをまとめて保存します。読み込み時に「復元（全置換・セクション構成ごと）」または「統合（マージ・表示中のセクションへ）」を選べます。</p>
     </div>
   </aside>
 
@@ -81,6 +90,7 @@
     <!-- セッション一覧画面 -->
     <section class="panel" id="view-list">
       <h2 class="panel__title">セッション一覧</h2>
+      <p class="list-section-label" id="list-section-label"></p>
       <p class="panel__desc" id="list-empty-note">まだログが読み込まれていません。メニューの「ファイルを選ぶ」から読み込んでください。</p>
       <p class="reorder-note" id="reorder-note" hidden>並び替えモード中です。ハンドル（≡）をドラッグして順番を変更できます。</p>
       <div class="session-list" id="session-list"></div>
@@ -203,6 +213,6 @@
   <p id="simple-toast-text"></p>
 </div>
 
-<script src="app.js?v=7"></script>
+<script src="app.js?v=8"></script>
 </body>
 </html>

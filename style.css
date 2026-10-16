@@ -601,3 +601,90 @@ main {
   .msg-line__bubble { background: rgba(255, 255, 255, 0.08); }
   .msg-line__bubble::before { border-color: transparent rgba(255, 255, 255, 0.08) transparent transparent; }
 }
+
+/* システムメッセージ（2026-10-16）: 枠で囲んだ灰色の地の文 */
+.msg-line--system {
+  margin: 4px 0;
+  padding: 6px 12px;
+  border: 1px solid var(--color-border);
+  border-left-width: 1px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.03);
+  color: #8a8f98;
+  font-size: 0.88rem;
+}
+.msg-line--system.is-hit { border-color: #f59e0b; }
+@media (prefers-color-scheme: dark) {
+  .msg-line--system { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.18); color: #8b919b; }
+}
+
+/* セクション（2026-10-16） */
+.section-current {
+  margin: 0 0 10px;
+  font-size: 0.9rem;
+}
+.section-history__title {
+  margin: 14px 0 6px;
+  font-size: 0.85rem;
+  color: var(--color-text-sub);
+}
+.section-history {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.section-row {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface);
+  overflow: hidden;
+}
+.section-row.is-current {
+  border-color: var(--color-primary);
+  box-shadow: inset 3px 0 0 var(--color-primary);
+}
+.section-row__main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.section-row__name {
+  font-weight: 700;
+  font-size: 0.92rem;
+  word-break: break-word;
+}
+.section-row__meta {
+  font-size: 0.78rem;
+  color: var(--color-text-sub);
+}
+.section-row__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 0 8px 6px;
+}
+.section-row__action {
+  border: none;
+  background: none;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--color-text-sub);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.section-row__action--danger { color: var(--color-danger); }
+.list-section-label {
+  margin: -4px 0 10px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--color-primary);
+}

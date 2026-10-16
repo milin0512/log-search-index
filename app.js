@@ -14,6 +14,8 @@ const STORE_SCROLL = "scrollPositions";
 const STORE_SETTINGS = "settings";
 const SETTING_ALIASES = "characterAliases";
 const SETTING_SPEAKER_ROLES = "speakerRoles";
+const SETTING_SECTIONS = "sections";
+const SETTING_CURRENT_SECTION = "currentSectionId";
 
 /* ============================================================
  * ユーティリティ
@@ -455,7 +457,10 @@ function insertNewSessionsIntoOrder(existing, newSessions) {
  * ========================================================== */
 
 const state = {
-  sessions: [], // { id, title, date, dateAuto, order, format, fileName, addedAt, messages, category }
+  sessions: [], // 表示中のセクションのセッション { id, sectionId, title, date, dateAuto, order, format, fileName, addedAt, messages }
+  otherSessions: [], // 表示中以外のセクションのセッション（切り替え・バックアップ用に保持する）
+  sections: [], // { id, name, createdAt, updatedAt, lastSessionId }（2026-10-16追加）
+  currentSectionId: null,
   view: "list", // 'list' | 'session'
   currentSessionId: null,
   reorderMode: false,
@@ -478,6 +483,11 @@ const el = {
   sidebarBackdrop: document.getElementById("sidebar-backdrop"),
   btnSidebarClose: document.getElementById("btn-sidebar-close"),
   btnGotoList: document.getElementById("btn-goto-list"),
+
+  currentSectionName: document.getElementById("current-section-name"),
+  btnNewSection: document.getElementById("btn-new-section"),
+  sectionHistory: document.getElementById("section-history"),
+  listSectionLabel: document.getElementById("list-section-label"),
 
   fileInput: document.getElementById("file-input"),
   folderInput: document.getElementById("folder-input"),
@@ -1199,6 +1209,7 @@ async function handleDeleteSession(id) {
     // 表示上は削除済みとして扱う
   }
   await dbDeleteScrollPos(id);
+  await touchCurrentSection();
 
   if (state.currentSessionId === id) {
     await backToList();
@@ -1267,6 +1278,7 @@ async function onDragPointerUp() {
   } catch (e) {
     // 並び順の保存に失敗しても表示上の並びはそのまま維持する
   }
+  await touchCurrentSection();
 }
 
 el.btnToggleReorder.addEventListener("click", async () => {
@@ -1333,7 +1345,15 @@ function renderSessionMessageList(session) {
     textSpan.className = "msg-line__text";
     renderMessageTextWithHighlight(textSpan, m.text, isKwHit ? kw : "");
 
-    if (!m.speaker || m.category === "info") {
+    // システムメッセージ（発言者なし・旧形式の発言者「system」）は、枠で囲んだ灰色の地の文にする（2026-10-16、Mikoto要望）
+    if (isSystemMessage(m)) {
+      line.classList.add("msg-line--system");
+      line.appendChild(textSpan);
+      el.sessionMessageList.appendChild(line);
+      return;
+    }
+
+    if (m.category === "info") {
       if (m.speaker) line.appendChild(buildSpeakerSpan(speakerName, m));
       line.appendChild(textSpan);
       el.sessionMessageList.appendChild(line);
@@ -1361,6 +1381,12 @@ function renderSessionMessageList(session) {
     }
     el.sessionMessageList.appendChild(line);
   });
+}
+
+function isSystemMessage(m) {
+  // infoタブの発言者なしの行（CClogプレビューの情報欄）は従来どおりinfoの見た目にする
+  if (m.category === "info") return false;
+  return !m.speaker || m.speaker.trim().toLowerCase() === "system";
 }
 
 function speakerColor(speakerName, m) {
@@ -1559,7 +1585,7 @@ async function applyImportDecisions(items, decisions) {
   });
 
   if (newDrafts.length > 0) {
-    const withIds = newDrafts.map((d) => ({ ...d, id: uid() }));
+    const withIds = newDrafts.map((d) => ({ ...d, id: uid(), sectionId: state.currentSectionId }));
     state.sessions = insertNewSessionsIntoOrder(state.sessions, withIds);
   }
 
@@ -1691,7 +1717,7 @@ async function importLogFiles(allFiles, { fromFolder }) {
   }
 
   if (newItems.length > 0) {
-    const withIds = newItems.map((item) => ({ ...item.draft, id: uid() }));
+    const withIds = newItems.map((item) => ({ ...item.draft, id: uid(), sectionId: state.currentSectionId }));
     state.sessions = insertNewSessionsIntoOrder(state.sessions, withIds);
   }
   if (newItems.length > 0 || replaced > 0) await saveAfterImport();
@@ -1703,6 +1729,7 @@ async function saveAfterImport() {
   } catch (e) {
     showSimpleToast("保存中にエラーが発生しました。");
   }
+  await touchCurrentSection();
   renderSessionList();
   renderCharacterChecklist();
   showBackupPromptToast();
@@ -1716,7 +1743,10 @@ function exportBackup() {
   const payload = {
     schemaVersion: SCHEMA_VERSION,
     exportedAt: new Date().toISOString(),
-    sessions: state.sessions,
+    // 全セクションをまとめて書き出す（2026-10-16、Mikoto確認）
+    sessions: allSessions(),
+    sections: state.sections,
+    currentSectionId: state.currentSectionId,
     characterAliases: state.aliases,
     speakerRoles: state.speakerRoles,
   };
@@ -1743,6 +1773,7 @@ function normalizeBackupSessions(list) {
     .filter((s) => s && typeof s === "object" && Array.isArray(s.messages))
     .map((s) => ({
       id: typeof s.id === "string" && s.id ? s.id : uid(),
+      sectionId: typeof s.sectionId === "string" ? s.sectionId : "",
       title: toText(s.title),
       date: typeof s.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s.date) ? s.date : null,
       dateAuto: !!s.dateAuto,
@@ -1779,6 +1810,8 @@ function normalizeAliases(obj) {
 let pendingBackupData = null;
 let pendingBackupAliases = {};
 let pendingBackupRoles = {};
+let pendingBackupSections = [];
+let pendingBackupCurrentSection = null;
 
 el.backupFileInput.addEventListener("change", async (e) => {
   const file = e.target.files && e.target.files[0];
@@ -1791,7 +1824,12 @@ el.backupFileInput.addEventListener("change", async (e) => {
     pendingBackupData = normalizeBackupSessions(data.sessions);
     pendingBackupAliases = normalizeAliases(data.characterAliases);
     pendingBackupRoles = normalizeSpeakerRoles(data.speakerRoles);
-    el.backupModeDesc.textContent = `${pendingBackupData.length}件のセッションを含むバックアップです。読み込み方法を選んでください。`;
+    pendingBackupSections = normalizeSections(data.sections);
+    pendingBackupCurrentSection = typeof data.currentSectionId === "string" ? data.currentSectionId : null;
+    const sectionNote = pendingBackupSections.length > 1 ? `（${pendingBackupSections.length}セクション）` : "";
+    el.backupModeDesc.textContent =
+      `${pendingBackupData.length}件のセッション${sectionNote}を含むバックアップです。読み込み方法を選んでください。` +
+      `復元はセクションの構成ごと置き換え、統合は表示中のセクション「${currentSectionName()}」に取り込みます。`;
     el.backupModeOverlay.hidden = false;
   } catch (err) {
     showSimpleToast("バックアップファイルを読み込めませんでした。ファイルの形式をご確認ください。");
@@ -1817,6 +1855,8 @@ el.btnBackupRestore.addEventListener("click", async () => {
   restored.forEach((s, i) => {
     s.order = i;
   });
+  // セクションの構成もバックアップの内容に置き換える（セクションを持たない古いバックアップは1つのセクションにまとめる）
+  const fixed = ensureSections(restored, pendingBackupSections, pendingBackupCurrentSection);
 
   try {
     await dbClearSessions();
@@ -1825,8 +1865,17 @@ el.btnBackupRestore.addEventListener("click", async () => {
     showSimpleToast("復元中にエラーが発生しました。");
   }
 
-  state.sessions = restored;
+  state.sections = fixed.sections;
+  state.currentSectionId = fixed.currentSectionId;
+  state.sections.forEach((sec) => {
+    sec.lastSessionId = null;
+  });
+  splitSessionsBySection(restored);
+  await saveSections();
+  renderSectionUi();
   pendingBackupData = null;
+  pendingBackupSections = [];
+  pendingBackupCurrentSection = null;
   // 復元（全置換）では、キャラクター統合設定・KP・PLの設定もバックアップの内容に置き換える
   state.aliases = pendingBackupAliases;
   state.speakerRoles = pendingBackupRoles;
@@ -1877,6 +1926,240 @@ el.btnBackupMerge.addEventListener("click", () => {
  * 初期化
  * ========================================================== */
 
+/* ============================================================
+ * セクション（2026-10-16、Mikoto要望）
+ * セッション一覧を丸ごと分ける「別々の本棚」。一覧・検索・絞り込み・前後移動は
+ * 表示中のセクションの中だけで行う。キャラクター統合・KP・PL設定は全セクション共通。
+ * サイドメニューの「セクション履歴」に最終編集が新しい順で並べ、すぐに切り替えられるようにする。
+ * ========================================================== */
+
+function allSessions() {
+  return state.otherSessions.concat(state.sessions);
+}
+
+// 全セッションを、表示中のセクションの分（state.sessions）とそれ以外に分ける
+function splitSessionsBySection(list) {
+  const sorted = list.slice().sort((a, b) => a.order - b.order);
+  state.sessions = sorted.filter((s) => s.sectionId === state.currentSectionId);
+  state.otherSessions = sorted.filter((s) => s.sectionId !== state.currentSectionId);
+}
+
+function normalizeSections(list) {
+  if (!Array.isArray(list)) return [];
+  const seen = new Set();
+  return list
+    .filter((s) => s && typeof s === "object" && typeof s.id === "string" && s.id && !seen.has(s.id) && seen.add(s.id))
+    .map((s) => ({
+      id: s.id,
+      name: toText(s.name).trim() || "（無題のセクション）",
+      createdAt: typeof s.createdAt === "string" ? s.createdAt : new Date().toISOString(),
+      updatedAt: typeof s.updatedAt === "string" ? s.updatedAt : new Date().toISOString(),
+      lastSessionId: typeof s.lastSessionId === "string" ? s.lastSessionId : null,
+    }));
+}
+
+function newSectionRecord(name) {
+  const now = new Date().toISOString();
+  return { id: uid(), name, createdAt: now, updatedAt: now, lastSessionId: null };
+}
+
+// セクションが1つもない・どのセクションにも属さないセッションがある、といった状態を直す。
+// 戻り値の changedSessions は sectionId を付け直したセッション（保存が必要なもの）。
+function ensureSections(sessions, sections, currentId) {
+  const list = sections.slice();
+  if (list.length === 0) list.push(newSectionRecord("セクション1"));
+  const ids = new Set(list.map((s) => s.id));
+  const fallbackId = list[0].id;
+  const changedSessions = [];
+  sessions.forEach((s) => {
+    if (!ids.has(s.sectionId)) {
+      s.sectionId = fallbackId;
+      changedSessions.push(s);
+    }
+  });
+  const current = ids.has(currentId) ? currentId : sectionsByRecent(list)[0].id;
+  return { sections: list, currentSectionId: current, changedSessions };
+}
+
+function sectionsByRecent(list = state.sections) {
+  return list.slice().sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : a.updatedAt > b.updatedAt ? -1 : 0));
+}
+
+function currentSection() {
+  return state.sections.find((s) => s.id === state.currentSectionId) || null;
+}
+function currentSectionName() {
+  const sec = currentSection();
+  return sec ? sec.name : "";
+}
+
+async function saveSections() {
+  try {
+    await dbPutSetting(SETTING_SECTIONS, state.sections);
+    await dbPutSetting(SETTING_CURRENT_SECTION, state.currentSectionId);
+  } catch (e) {
+    // セクション情報の保存に失敗しても表示は続ける
+  }
+}
+
+// ログの追加・差し替え・削除・並べ替えをしたときに、表示中のセクションの最終編集日時を更新する
+async function touchCurrentSection() {
+  const sec = currentSection();
+  if (!sec) return;
+  sec.updatedAt = new Date().toISOString();
+  await saveSections();
+  renderSectionUi();
+}
+
+function formatSectionTime(iso) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return `${d.getFullYear()}/${pad2(d.getMonth() + 1)}/${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
+
+function renderSectionUi() {
+  const name = currentSectionName();
+  el.currentSectionName.textContent = name;
+  el.listSectionLabel.textContent = `セクション：${name}`;
+
+  const counts = new Map();
+  allSessions().forEach((s) => counts.set(s.sectionId, (counts.get(s.sectionId) || 0) + 1));
+
+  el.sectionHistory.innerHTML = "";
+  sectionsByRecent().forEach((sec) => {
+    const isCurrent = sec.id === state.currentSectionId;
+    const row = document.createElement("div");
+    row.className = "section-row" + (isCurrent ? " is-current" : "");
+
+    const main = document.createElement("button");
+    main.type = "button";
+    main.className = "section-row__main";
+    const title = document.createElement("span");
+    title.className = "section-row__name";
+    title.textContent = sec.name + (isCurrent ? "（表示中）" : "");
+    const meta = document.createElement("span");
+    meta.className = "section-row__meta";
+    meta.textContent = `${counts.get(sec.id) || 0}件・最終編集 ${formatSectionTime(sec.updatedAt)}`;
+    main.appendChild(title);
+    main.appendChild(meta);
+    main.addEventListener("click", () => switchSection(sec.id));
+    row.appendChild(main);
+
+    const actions = document.createElement("div");
+    actions.className = "section-row__actions";
+    const rename = document.createElement("button");
+    rename.type = "button";
+    rename.className = "section-row__action";
+    rename.textContent = "名前を変更";
+    rename.addEventListener("click", () => renameSection(sec.id));
+    actions.appendChild(rename);
+    if (state.sections.length > 1) {
+      const del = document.createElement("button");
+      del.type = "button";
+      del.className = "section-row__action section-row__action--danger";
+      del.textContent = "削除";
+      del.addEventListener("click", () => deleteSection(sec.id));
+      actions.appendChild(del);
+    }
+    row.appendChild(actions);
+    el.sectionHistory.appendChild(row);
+  });
+}
+
+// 表示中のセクションで閲覧していたセッションを覚えておき、戻ってきたときに同じ位置から再開する
+async function leaveCurrentSection() {
+  const sec = currentSection();
+  if (state.view === "session" && state.currentSessionId) {
+    flushScrollSave();
+    await saveScrollPos(state.currentSessionId, window.scrollY);
+    if (sec) sec.lastSessionId = state.currentSessionId;
+  } else if (sec) {
+    sec.lastSessionId = null;
+  }
+  state.view = "list";
+  state.currentSessionId = null;
+}
+
+async function switchSection(id, { toList = false } = {}) {
+  if (id === state.currentSectionId && !toList) {
+    closeSidebar();
+    return;
+  }
+  if (!state.sections.some((s) => s.id === id)) return;
+  await leaveCurrentSection();
+
+  const all = allSessions();
+  state.currentSectionId = id;
+  splitSessionsBySection(all);
+  await saveSections();
+
+  if (state.reorderMode) {
+    state.reorderMode = false;
+    el.btnToggleReorder.textContent = "並び替えモードに切り替える";
+    el.reorderNote.hidden = true;
+  }
+  clearFilterState();
+  renderCharacterChecklist();
+  renderSectionUi();
+
+  const sec = currentSection();
+  const resumeId = !toList && sec && sec.lastSessionId;
+  if (resumeId && state.sessions.some((s) => s.id === resumeId)) {
+    await openSession(resumeId, {});
+  } else {
+    await backToList();
+    closeSidebar();
+  }
+  showSimpleToast(`セクション「${currentSectionName()}」を表示しています。`);
+}
+
+el.btnNewSection.addEventListener("click", async () => {
+  const defaultName = `セクション${state.sections.length + 1}`;
+  const input = prompt("新しいセクションの名前を入力してください。", defaultName);
+  if (input === null) return;
+  const sec = newSectionRecord(input.trim() || defaultName);
+  state.sections.push(sec);
+  await switchSection(sec.id, { toList: true });
+});
+
+async function renameSection(id) {
+  const sec = state.sections.find((s) => s.id === id);
+  if (!sec) return;
+  const input = prompt("セクションの名前を変更します。", sec.name);
+  if (input === null || !input.trim()) return;
+  sec.name = input.trim();
+  await saveSections();
+  renderSectionUi();
+}
+
+async function deleteSection(id) {
+  const sec = state.sections.find((s) => s.id === id);
+  if (!sec || state.sections.length <= 1) return;
+  const targets = allSessions().filter((s) => s.sectionId === id);
+  const ok = confirm(
+    `セクション「${sec.name}」と、その中の${targets.length}件のセッションをインデックスから削除します。元に戻せません。よろしいですか？`
+  );
+  if (!ok) return;
+
+  if (id === state.currentSectionId) {
+    const next = sectionsByRecent().find((s) => s.id !== id);
+    await switchSection(next.id, { toList: true });
+  }
+  state.otherSessions = state.otherSessions.filter((s) => s.sectionId !== id);
+  state.sections = state.sections.filter((s) => s.id !== id);
+  try {
+    for (const s of targets) {
+      await dbDeleteSession(s.id);
+      await dbDeleteScrollPos(s.id);
+    }
+  } catch (e) {
+    // 表示上は削除済みとして扱う
+  }
+  await saveSections();
+  renderSectionUi();
+  showSimpleToast(`セクション「${sec.name}」を削除しました。`);
+}
+
 // iPhone/iPadのSafariでは「フォルダを選ぶ」が通常のファイル選択になることを実機で確認したため
 // （2026-10-16、Mikoto確認）、iOS系ではボタンを出さず「ファイルを選ぶ」だけにする。
 // iPadOSはMacと同じUAを名乗るので、タッチ点数でも判定する。
@@ -1894,12 +2177,28 @@ async function init() {
   } catch (e) {
     state.aliases = {};
   }
+  let all = [];
+  let savedSections = [];
+  let savedCurrent = null;
   try {
-    state.sessions = (await dbGetAllSessions()).sort((a, b) => a.order - b.order);
+    all = (await dbGetAllSessions()).sort((a, b) => a.order - b.order);
+    savedSections = normalizeSections(await dbGetSetting(SETTING_SECTIONS));
+    savedCurrent = await dbGetSetting(SETTING_CURRENT_SECTION);
   } catch (e) {
-    state.sessions = [];
     el.loadStatus.textContent = "保存済みインデックスの読み込みに失敗しました。";
   }
+  // セクション機能より前のデータは、すべて「セクション1」に入れる
+  const fixed = ensureSections(all, savedSections, savedCurrent);
+  state.sections = fixed.sections;
+  state.currentSectionId = fixed.currentSectionId;
+  splitSessionsBySection(all);
+  try {
+    if (fixed.changedSessions.length > 0) await dbPutAllSessions(fixed.changedSessions);
+    await saveSections();
+  } catch (e) {
+    // 保存に失敗しても表示は続ける
+  }
+  renderSectionUi();
   renderSessionList();
   renderCharacterChecklist();
   updateFilterSummary();
