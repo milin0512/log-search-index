@@ -461,7 +461,7 @@ const state = {
   otherSessions: [], // 表示中以外のセクションのセッション（切り替え・バックアップ用に保持する）
   sections: [], // { id, name, createdAt, updatedAt, lastSessionId }（2026-10-16追加）
   currentSectionId: null,
-  view: "list", // 'list' | 'session'
+  view: "list", // 'list' | 'session' | 'hits'
   currentSessionId: null,
   reorderMode: false,
   filter: { keyword: "", characters: new Set() },
@@ -470,6 +470,8 @@ const state = {
   speakerRoles: {}, // KP・PLの手動設定 { 代表の名前: "kp" | "pl" | "character" }（5.3章）
   hits: [], // [{ sessionId, msgIndex }]
   hitIndex: -1,
+  hitsShown: 0, // 検索結果一覧に表示済みの件数（100件ずつ増やす）
+  hitsScrollY: 0, // 検索結果一覧から発言へ飛んだときのスクロール位置（「一覧」で戻ったときに復元する）
 };
 
 /* ============================================================
@@ -515,6 +517,11 @@ const el = {
   reorderNote: document.getElementById("reorder-note"),
   sessionList: document.getElementById("session-list"),
 
+  viewHits: document.getElementById("view-hits"),
+  hitsSummary: document.getElementById("hits-summary"),
+  hitList: document.getElementById("hit-list"),
+  btnHitsMore: document.getElementById("btn-hits-more"),
+
   viewSession: document.getElementById("view-session"),
   btnPrevSession: document.getElementById("btn-prev-session"),
   sessionViewTitle: document.getElementById("session-view-title"),
@@ -527,6 +534,7 @@ const el = {
   btnHitPrev: document.getElementById("btn-hit-prev"),
   btnHitNext: document.getElementById("btn-hit-next"),
   btnHitClose: document.getElementById("btn-hit-close"),
+  btnHitList: document.getElementById("btn-hit-list"),
   sessionMessageList: document.getElementById("session-message-list"),
 
   assignOverlay: document.getElementById("assign-overlay"),
@@ -605,7 +613,7 @@ el.btnSidebarClose.addEventListener("click", closeSidebar);
 el.sidebarBackdrop.addEventListener("click", closeSidebar);
 // セッション一覧にいるときは「セッション一覧に戻る」を出さない（2026-10-16、Mikoto要望）
 function updateGotoListButton() {
-  el.btnGotoList.hidden = state.view !== "session";
+  el.btnGotoList.hidden = state.view === "list";
 }
 el.btnGotoList.addEventListener("click", async () => {
   await backToList();
@@ -751,6 +759,9 @@ function refreshAfterAliasChange() {
     const session = state.sessions.find((s) => s.id === state.currentSessionId);
     if (session) renderSessionMessageList(session);
     updateHitNav();
+  } else if (state.view === "hits") {
+    if (state.hits.length > 0) renderHitList();
+    else backToList();
   } else {
     renderSessionList();
   }
@@ -967,6 +978,8 @@ async function setSpeakerRole(name, role) {
   if (state.view === "session") {
     const session = state.sessions.find((s) => s.id === state.currentSessionId);
     if (session) renderSessionMessageList(session);
+  } else if (state.view === "hits") {
+    renderHitList();
   }
 }
 
@@ -1082,8 +1095,10 @@ el.btnApplyFilter.addEventListener("click", () => {
   closeSidebar();
 
   if (state.hits.length > 0) {
-    // 検索条件が変わりハイライトを付け直す必要があるため、同じセッション内でも描き直す
-    gotoHit(0, { rerender: true });
+    // 最初の一致箇所へ直接飛ぶのではなく、まず一致した発言の一覧を出す（2026-10-17、Mikoto要望）
+    state.hitsShown = 0;
+    state.hitsScrollY = 0;
+    showHitsView();
   } else {
     backToList();
     if (keyword.trim() || characters.size > 0) {
@@ -1098,6 +1113,8 @@ el.btnClearFilter.addEventListener("click", () => {
     const session = state.sessions.find((s) => s.id === state.currentSessionId);
     if (session) renderSessionMessageList(session);
     updateHitNav();
+  } else if (state.view === "hits") {
+    backToList();
   } else {
     renderSessionList();
   }
@@ -1113,13 +1130,11 @@ el.btnClearFilter.addEventListener("click", () => {
 const HIT_MOVE_SETTLE_MS = 300;
 let hitMoveBusy = false;
 let hitMovePending = false;
-let hitMoveRerender = false;
 let hitMoveTimer = null;
 let hitMoveLastAt = 0;
-function gotoHit(idx, opts = {}) {
+function gotoHit(idx) {
   if (state.hits.length === 0) return;
   state.hitIndex = ((idx % state.hits.length) + state.hits.length) % state.hits.length;
-  if (opts.rerender) hitMoveRerender = true;
   el.hitNavLabel.textContent = `${state.hitIndex + 1} / ${state.hits.length} 件`;
 
   const now = Date.now();
@@ -1148,9 +1163,7 @@ async function runHitMove() {
       hitMovePending = false;
       const hit = state.hits[state.hitIndex];
       if (!hit) break;
-      const rerender = hitMoveRerender;
-      hitMoveRerender = false;
-      if (!rerender && state.view === "session" && state.currentSessionId === hit.sessionId) {
+      if (state.view === "session" && state.currentSessionId === hit.sessionId) {
         updateHitNav();
         scrollToMsg(hit.msgIndex);
       } else {
@@ -1174,6 +1187,118 @@ el.btnHitClose.addEventListener("click", () => {
   if (session) renderSessionMessageList(session);
   updateHitNav();
   renderCharacterChecklist();
+});
+el.btnHitList.addEventListener("click", () => showHitsView({ restoreScroll: true }));
+
+/* ============================================================
+ * 検索結果一覧（2026-10-17追加、Mikoto要望）
+ * 一致した発言をセッションごとに並べ、タップでその発言へ飛ぶ。
+ * 数千件ヒットしてもiPhoneで重くならないよう、100件ずつ表示する。
+ * ========================================================== */
+
+const HITS_PAGE_SIZE = 100;
+const SNIPPET_BEFORE = 20; // キーワードの前に残す文字数
+const SNIPPET_LENGTH = 90; // 抜粋全体のおおよその文字数
+
+async function showHitsView({ restoreScroll = false } = {}) {
+  if (state.currentSessionId && state.view === "session") {
+    flushScrollSave();
+    await saveScrollPos(state.currentSessionId, window.scrollY);
+  }
+  state.view = "hits";
+  state.currentSessionId = null;
+  updateGotoListButton();
+  el.viewList.hidden = true;
+  el.viewSession.hidden = true;
+  el.viewHits.hidden = false;
+  // 隠れたセッション画面の発言を残しておくとiPhoneでメモリを圧迫するため空にする（戻るときは描き直す）
+  el.sessionMessageList.replaceChildren();
+  closeSidebar();
+  renderHitList();
+  const y = restoreScroll ? state.hitsScrollY : 0;
+  afterLayout(() => window.scrollTo(0, y));
+}
+
+function renderHitList() {
+  const countBySession = new Map();
+  state.hits.forEach((h) => countBySession.set(h.sessionId, (countBySession.get(h.sessionId) || 0) + 1));
+  el.hitsSummary.textContent = `${el.filterSummary.textContent}・${countBySession.size}セッション`;
+  // 一覧に戻ってきたときも、前に「さらに表示」で出していた分までは表示する
+  const shown = Math.min(state.hits.length, Math.max(state.hitsShown, HITS_PAGE_SIZE));
+  state.hitsShown = 0;
+  el.hitList.replaceChildren();
+  appendHitRows(shown, countBySession);
+}
+
+function appendHitRows(upTo, countBySession) {
+  const kw = state.filter.keyword.trim();
+  const frag = document.createDocumentFragment();
+  let prevSessionId = state.hitsShown > 0 ? state.hits[state.hitsShown - 1].sessionId : null;
+  for (let i = state.hitsShown; i < upTo; i++) {
+    const hit = state.hits[i];
+    const session = state.sessions.find((s) => s.id === hit.sessionId);
+    const m = session && session.messages[hit.msgIndex];
+    if (!m) continue;
+
+    if (hit.sessionId !== prevSessionId) {
+      prevSessionId = hit.sessionId;
+      const head = document.createElement("div");
+      head.className = "hit-list__session";
+      const title = document.createElement("span");
+      title.className = "hit-list__session-title";
+      title.textContent = session.title || "（無題のセッション）";
+      const meta = document.createElement("span");
+      meta.className = "hit-list__session-meta";
+      meta.textContent = `${session.date || "日付不明"}・${countBySession.get(session.id) || 0}件`;
+      head.appendChild(title);
+      head.appendChild(meta);
+      frag.appendChild(head);
+    }
+
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "hit-row";
+    if (m.speaker) {
+      const speakerName = canonicalName(m.speaker);
+      const sp = document.createElement("span");
+      sp.className = "hit-row__speaker";
+      sp.textContent = speakerName;
+      const role = getSpeakerRole(speakerName);
+      if (role === "kp" || role === "pl") sp.classList.add(`hit-row__speaker--${role}`);
+      else sp.style.color = speakerColor(speakerName, m);
+      row.appendChild(sp);
+    }
+    const text = document.createElement("span");
+    text.className = "hit-row__text";
+    renderMessageTextWithHighlight(text, makeSnippet(m.text, kw), kw);
+    row.appendChild(text);
+    row.addEventListener("click", () => {
+      state.hitsScrollY = window.scrollY;
+      state.hitIndex = i;
+      runHitMove();
+    });
+    frag.appendChild(row);
+  }
+  el.hitList.appendChild(frag);
+  state.hitsShown = upTo;
+  const rest = state.hits.length - upTo;
+  el.btnHitsMore.hidden = rest <= 0;
+  el.btnHitsMore.textContent = `さらに表示（残り${rest}件）`;
+}
+
+// キーワードの少し前から切り出し、改行は詰めて1行の抜粋にする（キーワードなし＝キャラクター絞り込みのみなら先頭から）
+function makeSnippet(text, kw) {
+  const flat = text.replace(/\s*\n\s*/g, " ");
+  const pos = kw ? flat.toLowerCase().indexOf(kw.toLowerCase()) : -1;
+  const start = pos > SNIPPET_BEFORE ? pos - SNIPPET_BEFORE : 0;
+  const end = Math.min(flat.length, Math.max(start + SNIPPET_LENGTH, pos + kw.length + 10));
+  return (start > 0 ? "…" : "") + flat.slice(start, end) + (end < flat.length ? "…" : "");
+}
+
+el.btnHitsMore.addEventListener("click", () => {
+  const countBySession = new Map();
+  state.hits.forEach((h) => countBySession.set(h.sessionId, (countBySession.get(h.sessionId) || 0) + 1));
+  appendHitRows(Math.min(state.hits.length, state.hitsShown + HITS_PAGE_SIZE), countBySession);
 });
 
 /* ============================================================
@@ -1541,6 +1666,8 @@ async function openSession(id, opts = {}) {
   updateGotoListButton();
   el.viewList.hidden = true;
   el.viewSession.hidden = false;
+  el.viewHits.hidden = true;
+  el.hitList.replaceChildren(); // 検索結果一覧は「一覧」で戻るときに描き直す
 
   const idx = state.sessions.findIndex((s) => s.id === id);
   el.sessionViewTitle.textContent = session.title || "（無題のセッション）";
@@ -1592,6 +1719,7 @@ async function backToList() {
   state.currentSessionId = null;
   el.viewSession.hidden = true;
   el.viewList.hidden = false;
+  el.viewHits.hidden = true;
   renderSessionList();
   window.scrollTo(0, 0);
 }

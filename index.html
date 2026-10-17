@@ -7,7 +7,7 @@
 <title>ログ検索インデックス</title>
 <link rel="icon" href="I.png" />
 <link rel="apple-touch-icon" href="I.png" />
-<link rel="stylesheet" href="style.css?v=11" />
+<link rel="stylesheet" href="style.css?v=12" />
 </head>
 <body>
 
@@ -102,6 +102,14 @@
       <div class="session-list" id="session-list"></div>
     </section>
 
+    <!-- 検索結果一覧画面 -->
+    <section class="panel" id="view-hits" hidden>
+      <h2 class="panel__title">検索結果</h2>
+      <p class="panel__desc" id="hits-summary"></p>
+      <div class="hit-list" id="hit-list"></div>
+      <button type="button" class="btn btn--secondary btn--block hit-list__more" id="btn-hits-more" hidden>さらに表示</button>
+    </section>
+
     <!-- 個別セッション閲覧画面 -->
     <section class="panel" id="view-session" hidden>
       <div class="session-view__header">
@@ -115,6 +123,7 @@
 
       <div class="hit-nav" id="hit-nav" hidden>
         <span class="hit-nav__label" id="hit-nav-label"></span>
+        <button type="button" class="bottom-bar__icon-btn hit-nav__list-btn" id="btn-hit-list" aria-label="検索結果の一覧に戻る">一覧</button>
         <button type="button" class="bottom-bar__icon-btn" id="btn-hit-prev" aria-label="前の一致">◀</button>
         <button type="button" class="bottom-bar__icon-btn" id="btn-hit-next" aria-label="次の一致">▶</button>
         <button type="button" class="bottom-bar__icon-btn" id="btn-hit-close" aria-label="絞り込みを閉じる">×</button>
@@ -224,6 +233,6 @@
   <p id="simple-toast-text"></p>
 </div>
 
-<script src="app.js?v=11"></script>
+<script src="app.js?v=12"></script>
 </body>
 </html>

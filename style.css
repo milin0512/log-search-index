@@ -318,6 +318,58 @@ main {
 .hit-nav[hidden] { display: none; }
 .hit-nav__label { flex: 1; font-size: 0.85rem; color: var(--color-primary-dark); }
 #btn-hit-close { font-size: 1.3rem; font-weight: 700; line-height: 1; }
+.hit-nav__list-btn { padding: 0 10px; font-size: 0.85rem; font-weight: 700; }
+
+/* 検索結果一覧（2026-10-17追加） */
+.hit-list { display: flex; flex-direction: column; gap: 6px; }
+.hit-list__session {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 12px 0 2px;
+  padding-bottom: 4px;
+  border-bottom: 2px solid var(--color-primary);
+}
+.hit-list__session:first-child { margin-top: 0; }
+.hit-list__session-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hit-list__session-meta { flex: none; font-size: 0.8rem; color: var(--color-text-sub); }
+.hit-row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.hit-row:active { background: #fdf2f8; }
+.hit-row__speaker--kp { color: #3b6fa8; }
+.hit-row__speaker--pl { color: #a85a3b; }
+.hit-row__speaker {
+  display: block;
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--color-text-sub);
+}
+.hit-row__text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  font-size: 0.92rem;
+  word-break: break-word;
+}
+.hit-list__more { margin-top: 12px; }
 
 .message-list {
   display: flex;
@@ -473,6 +525,9 @@ main {
   .hit-nav .bottom-bar__icon-btn { background: #4a2338; border-color: #8a3a63; color: #fff; }
   .hit-nav .bottom-bar__icon-btn:active { background: #5c2c46; }
   .hit-nav__label { color: #f9a8d4; }
+  .hit-row:active { background: #3b1a2c; }
+  .hit-row__speaker--kp { color: #6ea3e0; }
+  .hit-row__speaker--pl { color: #e0916e; }
   .msg-line--info { background: rgba(255,255,255,0.04); }
   .msg-line.is-hit { background: #3a3312; }
   .msg-line.is-hit-current { background: #52440f; }
