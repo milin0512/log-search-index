@@ -311,11 +311,13 @@ main {
   padding: 6px 10px;
   margin-bottom: 12px;
   position: sticky;
-  top: 8px;
+  /* 画面右上に固定表示されるメニューボタン（top:16px・高さ44px）と重ならないよう、その下に止める */
+  top: 68px;
   z-index: 5;
 }
 .hit-nav[hidden] { display: none; }
 .hit-nav__label { flex: 1; font-size: 0.85rem; color: var(--color-primary-dark); }
+#btn-hit-close { font-size: 1.3rem; font-weight: 700; line-height: 1; }
 
 .message-list {
   display: flex;
@@ -511,6 +513,8 @@ main {
   }
   .sidebar-backdrop { display: none !important; }
   .app-header__menu-btn { display: none !important; }
+  /* メニューボタンが出ない幅では上に詰める */
+  .hit-nav { top: 8px; }
   #btn-sidebar-close { display: none !important; }
 }
 
