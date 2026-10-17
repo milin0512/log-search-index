@@ -1082,7 +1082,8 @@ el.btnApplyFilter.addEventListener("click", () => {
   closeSidebar();
 
   if (state.hits.length > 0) {
-    gotoHit(0);
+    // 検索条件が変わりハイライトを付け直す必要があるため、同じセッション内でも描き直す
+    gotoHit(0, { rerender: true });
   } else {
     backToList();
     if (keyword.trim() || characters.size > 0) {
@@ -1103,11 +1104,45 @@ el.btnClearFilter.addEventListener("click", () => {
   renderCharacterChecklist();
 });
 
-function gotoHit(idx) {
+// 以前は一致箇所へ移るたびにセッション全体を描き直していたため、iPhoneで「次へ」を連打すると
+// 描き直しが積み重なってSafariがページを落とすことがあった（2026-10-17、Mikoto報告）。
+// 同じセッション内の移動はスクロールだけにし、別セッションへの移動は1回ずつ順番に処理する。
+// 処理中に押された分は件数表示だけ先に進め、最後に押された一致箇所へまとめて移動する。
+let hitMoveBusy = false;
+let hitMovePending = false;
+let hitMoveRerender = false;
+async function gotoHit(idx, opts = {}) {
   if (state.hits.length === 0) return;
   state.hitIndex = ((idx % state.hits.length) + state.hits.length) % state.hits.length;
-  const hit = state.hits[state.hitIndex];
-  openSession(hit.sessionId, { focusMsgIndex: hit.msgIndex });
+  if (opts.rerender) hitMoveRerender = true;
+  if (hitMoveBusy) {
+    hitMovePending = true;
+    el.hitNavLabel.textContent = `${state.hitIndex + 1} / ${state.hits.length} 件`;
+    return;
+  }
+  hitMoveBusy = true;
+  try {
+    do {
+      hitMovePending = false;
+      const hit = state.hits[state.hitIndex];
+      if (!hit) break;
+      const rerender = hitMoveRerender;
+      hitMoveRerender = false;
+      if (!rerender && state.view === "session" && state.currentSessionId === hit.sessionId) {
+        updateHitNav();
+        scrollToMsg(hit.msgIndex);
+      } else {
+        await openSession(hit.sessionId, { focusMsgIndex: hit.msgIndex });
+      }
+    } while (hitMovePending);
+  } finally {
+    hitMoveBusy = false;
+  }
+}
+
+function scrollToMsg(msgIndex) {
+  const target = el.sessionMessageList.querySelector(`.msg-line[data-idx="${msgIndex}"]`);
+  if (target) target.scrollIntoView({ block: "center" });
 }
 el.btnHitPrev.addEventListener("click", () => gotoHit(state.hitIndex - 1));
 el.btnHitNext.addEventListener("click", () => gotoHit(state.hitIndex + 1));
@@ -1376,7 +1411,8 @@ function renderSessionMessageList(session) {
   const kw = state.filter.keyword.trim();
   const chars = state.filter.characters;
 
-  el.sessionMessageList.innerHTML = "";
+  // 1行ずつ画面に足すと長いログで重くなるため、まとめて組み立ててから1回で差し替える
+  const frag = document.createDocumentFragment();
   session.messages.forEach((m, idx) => {
     const line = document.createElement("div");
     line.className = "msg-line";
@@ -1397,14 +1433,14 @@ function renderSessionMessageList(session) {
     if (isSystemMessage(m)) {
       line.classList.add("msg-line--system");
       line.appendChild(textSpan);
-      el.sessionMessageList.appendChild(line);
+      frag.appendChild(line);
       return;
     }
 
     if (m.category === "info") {
       if (m.speaker) line.appendChild(buildSpeakerSpan(speakerName, m));
       line.appendChild(textSpan);
-      el.sessionMessageList.appendChild(line);
+      frag.appendChild(line);
       return;
     }
 
@@ -1427,8 +1463,9 @@ function renderSessionMessageList(session) {
       line.appendChild(buildSpeakerSpan(speakerName, m));
       line.appendChild(textSpan);
     }
-    el.sessionMessageList.appendChild(line);
+    frag.appendChild(line);
   });
+  el.sessionMessageList.replaceChildren(frag);
 }
 
 function isSystemMessage(m) {
@@ -1496,10 +1533,13 @@ async function openSession(id, opts = {}) {
   closeSidebar();
 
   if (typeof opts.focusMsgIndex === "number") {
-    afterLayout(() => {
-      const target = el.sessionMessageList.querySelector(`.msg-line[data-idx="${opts.focusMsgIndex}"]`);
-      if (target) target.scrollIntoView({ block: "center" });
-    });
+    // スクロールが終わるまで待ってから戻る（gotoHitが次の移動を始めたあとに古い位置へ戻されないように）
+    await new Promise((resolve) =>
+      afterLayout(() => {
+        scrollToMsg(opts.focusMsgIndex);
+        resolve();
+      })
+    );
   } else {
     const savedY = await loadScrollPos(id);
     afterLayout(() => window.scrollTo(0, savedY || 0));

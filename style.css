@@ -469,7 +469,10 @@ main {
   .field input[type="text"], .assign-row select, .merge-rep-field select, .role-select { background: #1a1c22; color: var(--color-text); }
   .character-checklist { background: #1a1c22; }
   .overlay__sheet { background: #1f2229; }
-  .bottom-bar__icon-btn { background: #2a2d35; border-color: var(--color-border); }
+  .bottom-bar__icon-btn { background: #2a2d35; border-color: var(--color-border); color: var(--color-text); }
+  .hit-nav .bottom-bar__icon-btn { background: #4a2338; border-color: #8a3a63; color: #fff; }
+  .hit-nav .bottom-bar__icon-btn:active { background: #5c2c46; }
+  .hit-nav__label { color: #f9a8d4; }
   .msg-line--info { background: rgba(255,255,255,0.04); }
   .msg-line.is-hit { background: #3a3312; }
   .msg-line.is-hit-current { background: #52440f; }
