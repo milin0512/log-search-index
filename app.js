@@ -1108,16 +1108,38 @@ el.btnClearFilter.addEventListener("click", () => {
 // 描き直しが積み重なってSafariがページを落とすことがあった（2026-10-17、Mikoto報告）。
 // 同じセッション内の移動はスクロールだけにし、別セッションへの移動は1回ずつ順番に処理する。
 // 処理中に押された分は件数表示だけ先に進め、最後に押された一致箇所へまとめて移動する。
+// それでもiPhoneで連打すると落ちたため（2026-10-17、Mikoto報告）、続けて押している間は件数表示だけを進め、
+// 指が止まってから1回だけ実際に移動する。長いページの大きなジャンプや描き直しを短時間に詰め込まないため。
+const HIT_MOVE_SETTLE_MS = 300;
 let hitMoveBusy = false;
 let hitMovePending = false;
 let hitMoveRerender = false;
-async function gotoHit(idx, opts = {}) {
+let hitMoveTimer = null;
+let hitMoveLastAt = 0;
+function gotoHit(idx, opts = {}) {
   if (state.hits.length === 0) return;
   state.hitIndex = ((idx % state.hits.length) + state.hits.length) % state.hits.length;
   if (opts.rerender) hitMoveRerender = true;
+  el.hitNavLabel.textContent = `${state.hitIndex + 1} / ${state.hits.length} 件`;
+
+  const now = Date.now();
+  const tappingFast = now - hitMoveLastAt < HIT_MOVE_SETTLE_MS;
+  hitMoveLastAt = now;
+  clearTimeout(hitMoveTimer);
+  hitMoveTimer = null;
+  if (tappingFast || hitMoveBusy) {
+    hitMoveTimer = setTimeout(() => {
+      hitMoveTimer = null;
+      runHitMove();
+    }, HIT_MOVE_SETTLE_MS);
+    return;
+  }
+  runHitMove();
+}
+
+async function runHitMove() {
   if (hitMoveBusy) {
     hitMovePending = true;
-    el.hitNavLabel.textContent = `${state.hitIndex + 1} / ${state.hits.length} 件`;
     return;
   }
   hitMoveBusy = true;
